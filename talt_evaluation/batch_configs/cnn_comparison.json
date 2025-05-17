@@ -1,0 +1,115 @@
+{
+  "description": "Comparison of TALT vs SGD across CNN architectures on CIFAR datasets",
+  "experiments": [
+    {
+      "name": "resnet18_cifar10_talt",
+      "architecture": "resnet18",
+      "dataset": "cifar10",
+      "optimizer": "talt",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "resnet18_cifar10_sgd",
+      "architecture": "resnet18",
+      "dataset": "cifar10",
+      "optimizer": "sgd",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "resnet50_cifar10_talt",
+      "architecture": "resnet50",
+      "dataset": "cifar10",
+      "optimizer": "talt",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "resnet50_cifar10_sgd",
+      "architecture": "resnet50",
+      "dataset": "cifar10",
+      "optimizer": "sgd",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "vgg16_cifar10_talt",
+      "architecture": "vgg16",
+      "dataset": "cifar10",
+      "optimizer": "talt",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.05,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "vgg16_cifar10_sgd",
+      "architecture": "vgg16",
+      "dataset": "cifar10",
+      "optimizer": "sgd",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.05,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "efficientnet-b0_cifar10_talt",
+      "architecture": "efficientnet-b0",
+      "dataset": "cifar10",
+      "optimizer": "talt",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.05,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "efficientnet-b0_cifar10_sgd",
+      "architecture": "efficientnet-b0",
+      "dataset": "cifar10",
+      "optimizer": "sgd",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.05,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "resnet18_cifar100_talt",
+      "architecture": "resnet18",
+      "dataset": "cifar100",
+      "optimizer": "talt",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    },
+    {
+      "name": "resnet18_cifar100_sgd",
+      "architecture": "resnet18",
+      "dataset": "cifar100",
+      "optimizer": "sgd",
+      "epochs": 30,
+      "batch-size": 128,
+      "lr": 0.1,
+      "mixed-precision": true,
+      "save-checkpoints": true
+    }
+  ]
+}
