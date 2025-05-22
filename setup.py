@@ -19,11 +19,10 @@ requirements = [
 ]
 
 setup(
-    name="talt-optimizer",
+    name="talt",
     version="0.1.0",
     author="TALT Team",
-    author_email="example@example.com",
-    description="Topology-Aware Learning Trajectory Optimizer",
+    description="TALT Optimization Library",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/example/talt",
@@ -38,6 +37,12 @@ setup(
         "Intended Audience :: Science/Research",
     ],
     packages=find_packages(),
-    python_requires=">=3.7",
-    install_requires=requirements,
+    python_requires=">=3.6",
+    install_requires=[
+        "torch>=1.7.0",
+        "torchvision>=0.8.0",
+        "numpy>=1.19.0",
+        "matplotlib>=3.3.0",
+        "seaborn>=0.11.0",
+    ],
 )

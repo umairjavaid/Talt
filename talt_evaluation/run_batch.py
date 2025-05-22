@@ -37,12 +37,16 @@ def run_experiment(cmd, gpu_index):
     cmd_with_gpu = cmd + f" --gpu-index {gpu_index}"
     logger.info(f"Running: {cmd_with_gpu}")
     
+    # Get the current script directory to determine the project root
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
     process = subprocess.Popen(
         cmd_with_gpu,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        universal_newlines=True
+        universal_newlines=True,
+        cwd=current_dir  # Run from the current directory to ensure proper module paths
     )
     
     stdout, stderr = process.communicate()
@@ -87,7 +91,8 @@ def main():
     # Prepare experiment commands
     experiment_cmds = []
     for exp_config in batch_config['experiments']:
-        cmd = f"python run_experiment.py"
+        # Use full path to the run_experiment.py script
+        cmd = f"python talt_evaluation/run_experiment.py"
         
         # Add experiment parameters
         for key, value in exp_config.items():

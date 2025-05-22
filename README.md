@@ -1,6 +1,7 @@
-# Topology-Aware Learning Trajectory (TALT) Optimizer
+# TALT: Trajectory-Aware Learning Technique
 
-An enhanced optimizer for deep learning that uses topology analysis to improve optimization performance and convergence.
+## Overview
+TALT is a novel optimization technique for training neural networks that analyzes the optimization trajectory to improve convergence.
 
 ## Features
 
@@ -10,13 +11,25 @@ An enhanced optimizer for deep learning that uses topology analysis to improve o
 - **Non-parametric Valley Detection**: Identifies valleys in the loss landscape for faster convergence
 - **Visualization Tools**: Comprehensive visualization of optimization trajectories and landscape features
 
-## Installation
+## Setup
 
+### Local Installation
 ```bash
-# Install from source
-git clone https://github.com/yourusername/talt.git
-cd talt
+# Clone the repository
+git clone https://github.com/yourusername/Talt.git
+cd Talt
+
+# Install the package
 pip install -e .
+```
+
+### Google Colab Setup
+If you're using Google Colab, run the following commands:
+
+```python
+!git clone https://github.com/yourusername/Talt.git
+%cd Talt
+!python setup_colab.py
 ```
 
 ## Quick Start
@@ -54,14 +67,29 @@ results = talt.train_and_evaluate_improved(
 
 ## Running Experiments
 
-Use the provided example script to run experiments:
+### Single Experiment
+To run a single experiment:
 
 ```bash
-# Train with standard SGD
-python -m examples.main --dataset cifar10 --epochs 10
+python talt_evaluation/run_experiment.py \
+    --name resnet18_cifar10_talt \
+    --architecture resnet18 \
+    --dataset cifar10 \
+    --optimizer talt \
+    --epochs 30 \
+    --batch-size 128 \
+    --lr 0.1 \
+    --mixed-precision \
+    --output-dir ./results
+```
 
-# Train with improved TALT optimizer
-python -m examples.main --dataset cifar10 --epochs 10 --use-talt
+### Batch Experiments
+To run a batch of experiments:
+
+```bash
+python talt_evaluation/run_batch.py \
+    --config talt_evaluation/batch_configs/cnn_comparison.json \
+    --output-dir ./results
 ```
 
 ## Command Line Arguments
@@ -77,6 +105,9 @@ python -m examples.main --dataset cifar10 --epochs 10 --use-talt
 | `--update-interval` | Steps between topology updates | 20 |
 | `--valley-strength` | Valley acceleration strength | 0.2 |
 | `--smoothing-factor` | Curvature smoothing factor | 0.3 |
+
+## Configuration
+Experiment configurations are defined in JSON files under `talt_evaluation/batch_configs/`.
 
 ## Package Structure
 
