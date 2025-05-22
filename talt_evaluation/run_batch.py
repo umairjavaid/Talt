@@ -37,9 +37,10 @@ def run_experiment(cmd, gpu_index):
     cmd_with_gpu = cmd + f" --gpu-index {gpu_index}"
     logger.info(f"Running: {cmd_with_gpu}")
     
-    # Use the root project directory for execution
-    # This ensures proper module imports regardless of where the script is called from
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    # Get the absolute path to the project root
+    script_path = os.path.abspath(__file__)
+    script_dir = os.path.dirname(script_path)
+    project_root = os.path.abspath(os.path.join(script_dir, '..'))
     
     process = subprocess.Popen(
         cmd_with_gpu,

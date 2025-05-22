@@ -2,6 +2,9 @@
 Setup script for installing the TALT package.
 """
 
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 from setuptools import setup, find_packages
 
 # Read long description from README
@@ -15,14 +18,17 @@ requirements = [
     "numpy>=1.19.0",
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
-    "psutil>=5.8.0",
+    "datasets>=1.5.0",
+    "transformers>=4.5.0",
+    "huggingface-hub>=0.0.12",
+    "optuna>=2.8.0",
 ]
 
 setup(
     name="talt",
     version="0.1.0",
     author="TALT Team",
-    description="TALT Optimization Library",
+    description="TALT Optimization Framework",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/example/talt",
@@ -37,12 +43,6 @@ setup(
         "Intended Audience :: Science/Research",
     ],
     packages=find_packages(),
-    python_requires=">=3.6",
-    install_requires=[
-        "torch>=1.7.0",
-        "torchvision>=0.8.0",
-        "numpy>=1.19.0",
-        "matplotlib>=3.3.0",
-        "seaborn>=0.11.0",
-    ],
+    python_requires=">=3.7",
+    install_requires=requirements,
 )

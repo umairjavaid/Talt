@@ -3,8 +3,14 @@
 
 import torch
 from torch.utils.data import DataLoader
-from datasets import load_dataset
+from huggingface_hub.utils import disable_progress_bars
+# Import from Hugging Face datasets library explicitly
+from huggingface_hub import HfApi
+import datasets as hf_datasets
 from transformers import BertTokenizer
+
+# Disable progress bars for cleaner output
+disable_progress_bars()
 
 class GlueDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels=None):
@@ -41,7 +47,7 @@ def get_glue_dataset(task_name, batch_size=32, num_workers=4):
     max_length = 128  # Maximum sequence length
     
     # Load SST-2 dataset from Hugging Face datasets
-    dataset = load_dataset("glue", "sst2")
+    dataset = hf_datasets.load_dataset("glue", "sst2")
     
     # Preprocess training data
     train_texts = dataset["train"]["sentence"]
