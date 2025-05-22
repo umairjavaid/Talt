@@ -76,6 +76,8 @@ class ValleyDetector:
 
                 # Get eigenvector with smallest eigenvalue (valley direction)
                 eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+                # eigenvalues are already sorted in ascending order in torch.linalg.eigh
+                # but making it explicit for clarity
                 valley_dir = eigenvectors[:, 0]  # Direction of smallest eigenvalue
                 return True, valley_dir
             except Exception:

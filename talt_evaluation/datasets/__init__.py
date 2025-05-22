@@ -1,10 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Provide higher level dataset access functions
-from .cifar import get_cifar10_dataset, get_cifar100_dataset
-# Import the following modules only when needed to avoid circular imports
-# from .glue import get_glue_dataset
+# Define proper dataset functions
+def get_cifar10_dataset(**kwargs):
+    """Get CIFAR10 dataset"""
+    from .cifar import get_cifar_dataset
+    return get_cifar_dataset(num_classes=10, **kwargs)
+
+def get_cifar100_dataset(**kwargs):
+    """Get CIFAR100 dataset"""
+    from .cifar import get_cifar_dataset
+    return get_cifar_dataset(num_classes=100, **kwargs)
 
 def get_dataset(name, **kwargs):
     """

@@ -61,7 +61,8 @@ class TaltTuner:
         Returns:
             TALT optimizer instance
         """
-        from talt import TALT  # Assumed TALT optimizer is installed
+        # Fixed: Use ImprovedTALTOptimizer instead of TALT
+        from talt.optimizer import ImprovedTALTOptimizer as TALT
         
         # Fixed parameters
         lr = 0.1 if self.model.model_type == 'cnn' else 2e-5

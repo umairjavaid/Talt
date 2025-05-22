@@ -67,12 +67,15 @@ class IncrementalCovariance:
         Returns:
             Covariance matrix with regularization
         """
+        # Get device of current cov matrix if it exists
+        device = self.cov.device if hasattr(self.cov, 'device') else 'cpu'
+        
         if self.n_samples < 2:
             # Not enough samples, return identity matrix
-            return torch.eye(self.dim) * reg
+            return torch.eye(self.dim, device=device) * reg  # Fixed: Match device with cov
 
         # Add regularization
-        cov = self.cov + torch.eye(self.dim) * reg
+        cov = self.cov + torch.eye(self.dim, device=device) * reg  # Fixed: Match device with cov
 
         # Ensure symmetry
         cov = 0.5 * (cov + cov.t())

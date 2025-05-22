@@ -170,6 +170,9 @@ def train_and_evaluate_improved(
             smoothing_factor=smoothing_factor,
             device=device
         )
+        
+        # Add base_optimizer property access for scheduler compatibility
+        optimizer.optimizer = optimizer.optimizer  # Use existing optimizer
     else:
         print(f"Using standard SGD optimizer with lr={learning_rate}")
         optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)

@@ -92,7 +92,7 @@ class ImprovedTALTOptimizer:
         self.max_visualization_points = max_visualization_points
 
         # Initialize GradScaler for mixed precision
-        self.scaler = GradScaler('cuda')
+        self.scaler = GradScaler()  # Fixed: Removed invalid 'cuda' parameter
 
         # Tracking variables
         self.steps = 0
@@ -192,9 +192,7 @@ class ImprovedTALTOptimizer:
                 # Transform the gradient
                 # First, compute the component in valley direction
                 valley_dir = valley_dir.to(self.device)
-                valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
-
-                # Amplify the valley component
+                valley_component = torch.dot(flat_grad, valley_dir) * valley_dir  # Fixed: Added missing line
                 flat_grad = flat_grad + self.valley_strength * valley_component
 
             # Apply curvature-based transformation

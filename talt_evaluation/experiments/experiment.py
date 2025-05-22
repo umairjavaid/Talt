@@ -98,7 +98,8 @@ class Experiment:
         """
         if self.optimizer_type == 'talt':
             try:
-                from talt import TALT
+                # Fixed: Use ImprovedTALTOptimizer instead of TALT
+                from talt.optimizer import ImprovedTALTOptimizer as TALT
                 optimizer = TALT(
                     self.model.parameters(),
                     **self.optimizer_config
