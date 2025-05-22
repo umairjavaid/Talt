@@ -23,22 +23,17 @@ class ResNetModel(BaseArchitecture):
         self.depth = depth
         self.num_classes = num_classes
         
-        # Initialize the ResNet model using the newer weights API
+        # Initialize the ResNet model
         if depth == 18:
-            weights = models.ResNet18_Weights.DEFAULT if pretrained else None
-            base_model = models.resnet18(weights=weights)
+            base_model = models.resnet18(pretrained=pretrained)
         elif depth == 34:
-            weights = models.ResNet34_Weights.DEFAULT if pretrained else None
-            base_model = models.resnet34(weights=weights)
+            base_model = models.resnet34(pretrained=pretrained)
         elif depth == 50:
-            weights = models.ResNet50_Weights.DEFAULT if pretrained else None
-            base_model = models.resnet50(weights=weights)
+            base_model = models.resnet50(pretrained=pretrained)
         elif depth == 101:
-            weights = models.ResNet101_Weights.DEFAULT if pretrained else None
-            base_model = models.resnet101(weights=weights)
+            base_model = models.resnet101(pretrained=pretrained)
         elif depth == 152:
-            weights = models.ResNet152_Weights.DEFAULT if pretrained else None
-            base_model = models.resnet152(weights=weights)
+            base_model = models.resnet152(pretrained=pretrained)
         else:
             raise ValueError(f"Unsupported ResNet depth: {depth}")
         

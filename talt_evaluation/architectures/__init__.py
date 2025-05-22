@@ -7,46 +7,50 @@ import torch.nn.functional as F
 import torchvision.models as models
 from .base import BaseArchitecture
 from talt.model import SimpleCNN
+from .cnn.resnet import get_resnet
+from .cnn.vgg import get_vgg
+from .cnn.efficientnet import get_efficientnet
 
-def get_architecture(architecture_name, dataset_name="cifar10", pretrained=False, **kwargs):
+def get_architecture(architecture_name, dataset="cifar10", **kwargs):
     """
-    Get architecture model by name
+    Get architecture model and configuration by name
     
     Args:
         architecture_name (str): Name of the architecture
-        dataset_name (str): Name of the dataset
-        pretrained (bool): Whether to use pretrained weights
+        dataset (str): Name of the dataset
         **kwargs: Additional arguments for the model
         
     Returns:
-        model: The architecture model
+        tuple: (model, model_config)
     """
-    # Determine number of classes based on dataset
-    num_classes = 10  # default
-    if dataset_name.lower() == "cifar100":
-        num_classes = 100
+    # Parse ResNet depth from architecture name
+    if architecture_name.lower().startswith("resnet"):
+        try:
+            depth = int(architecture_name.lower().replace("resnet", ""))
+            return get_resnet(depth, dataset=dataset, **kwargs)
+        except ValueError:
+            raise ValueError(f"Invalid ResNet architecture: {architecture_name}")
     
-    # Copy kwargs to avoid modifying the original
-    model_kwargs = kwargs.copy()
+    # Handle VGG models
+    elif architecture_name.lower().startswith("vgg"):
+        return get_vgg(architecture_name.lower(), dataset=dataset, **kwargs)
     
-    # Prevent dataset from being passed to model constructors
-    if 'dataset' in model_kwargs:
-        del model_kwargs['dataset']
+    # Handle EfficientNet models
+    elif architecture_name.lower().startswith("efficientnet"):
+        model_variant = architecture_name.lower()
+        return get_efficientnet(model_variant, dataset=dataset, **kwargs)
     
-    if architecture_name.lower() == "simplecnn":
-        return SimpleCNN(num_classes=num_classes, **model_kwargs)
-    elif architecture_name.lower() == "resnet18":
-        # Use weights parameter instead of pretrained
-        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
-        model = models.resnet18(weights=weights, **model_kwargs)
-        model.fc = nn.Linear(model.fc.in_features, num_classes)
-        return model
-    elif architecture_name.lower() == "mobilenetv2":
-        # Use weights parameter instead of pretrained
-        weights = models.MobileNet_V2_Weights.DEFAULT if pretrained else None
-        model = models.mobilenet_v2(weights=weights, **model_kwargs)
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
-        return model
+    # Handle SimpleCNN
+    elif architecture_name.lower() == "simplecnn":
+        model = SimpleCNN(num_classes=10 if dataset.lower() == "cifar10" else 100, **kwargs)
+        model_config = {
+            'name': 'simplecnn',
+            'model_type': 'cnn',
+            'num_classes': 10 if dataset.lower() == "cifar10" else 100
+        }
+        return model, model_config
+    
+    # Handle any other architecture
     else:
         raise ValueError(f"Unknown architecture: {architecture_name}")
 
