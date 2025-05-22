@@ -108,11 +108,15 @@ class Experiment:
                     weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
                 )
                 
+                # Fix: Avoid passing 'lr' twice by using a copy of optimizer_config without the 'lr' key
+                talt_config = self.optimizer_config.copy()
+                lr_value = talt_config.pop('lr', 0.01)  # Extract and remove lr from the config dict
+                
                 optimizer = TALT(
                     model=self.model,
                     base_optimizer=base_optimizer,
-                    lr=self.optimizer_config.get('lr', 0.01),
-                    **self.optimizer_config
+                    lr=lr_value,
+                    **talt_config
                 )
                 logger.info("Created TALT optimizer")
             except ImportError:
