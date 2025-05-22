@@ -6,12 +6,14 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
 
-def get_cifar_dataset(num_classes, batch_size=128, num_workers=4):
+def get_cifar_dataset(num_classes, root="./data", transform=None, batch_size=128, num_workers=4):
     """
     Get CIFAR10 or CIFAR100 dataset with standard data augmentations.
     
     Args:
         num_classes: Number of classes (10 for CIFAR10, 100 for CIFAR100)
+        root: Root directory for the dataset
+        transform: Optional custom transforms (if None, standard transforms will be used)
         batch_size: Batch size for data loaders
         num_workers: Number of workers for data loading
     
@@ -21,21 +23,25 @@ def get_cifar_dataset(num_classes, batch_size=128, num_workers=4):
     if num_classes not in [10, 100]:
         raise ValueError("num_classes must be either 10 (CIFAR10) or 100 (CIFAR100)")
     
-    # Define transforms for training (with augmentation)
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), 
-                             (0.2023, 0.1994, 0.2010)),
-    ])
-    
-    # Define transforms for validation/testing (no augmentation)
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), 
-                             (0.2023, 0.1994, 0.2010)),
-    ])
+    # Define transforms for training (with augmentation) if no custom transform provided
+    if transform is None:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), 
+                                (0.2023, 0.1994, 0.2010)),
+        ])
+        
+        # Define transforms for validation/testing (no augmentation)
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), 
+                                (0.2023, 0.1994, 0.2010)),
+        ])
+    else:
+        transform_train = transform
+        transform_test = transform
     
     # Load the appropriate CIFAR dataset
     if num_classes == 10:
@@ -45,7 +51,7 @@ def get_cifar_dataset(num_classes, batch_size=128, num_workers=4):
     
     # Load training data
     full_trainset = cifar_class(
-        root='./data', 
+        root=root, 
         train=True,
         download=True, 
         transform=transform_train
