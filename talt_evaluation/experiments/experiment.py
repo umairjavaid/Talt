@@ -67,8 +67,9 @@ class Experiment:
         else:  # For BERT
             self.criterion = torch.nn.CrossEntropyLoss()
         
-        # Use mixed precision for faster training
-        self.scaler = GradScaler() if mixed_precision and device.type == 'cuda' else None
+        # Use mixed precision for faster training - only for standard optimizers
+        # TALT optimizer handles mixed precision internally
+        self.scaler = GradScaler() if mixed_precision and device.type == 'cuda' and optimizer_type != 'talt' else None
         
         # Track metrics
         self.results = {
@@ -173,7 +174,7 @@ class Experiment:
     
     def _train_epoch(self, epoch):
         """
-        Train for one epoch.
+        Train for one epoch with proper handling for different optimizer types.
         
         Args:
             epoch: Current epoch number
@@ -189,63 +190,103 @@ class Experiment:
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}")
         
         for batch_idx, batch in enumerate(pbar):
-            # Handle different dataset types
-            if isinstance(batch, dict):  # For BERT/transformer models
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                token_type_ids = batch.get('token_type_ids')
-                if token_type_ids is not None:
-                    token_type_ids = token_type_ids.to(self.device)
-                labels = batch['labels'].to(self.device)
+            if self.optimizer_type == 'talt':
+                # TALT optimizer has its own step method that handles forward/backward/optimize
+                if isinstance(batch, dict):  # For BERT/transformer models
+                    input_ids = batch['input_ids'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
+                    token_type_ids = batch.get('token_type_ids')
+                    if token_type_ids is not None:
+                        token_type_ids = token_type_ids.to(self.device)
+                    labels = batch['labels'].to(self.device)
+                    
+                    # Create a loss function closure that handles the transformer inputs
+                    def loss_fn(outputs, targets):
+                        return self.criterion(outputs, targets)
+                    
+                    # For transformer models, we need to handle the complex input structure
+                    # This is a workaround since TALT expects a simpler (x, y) format
+                    # We use a wrapper to ensure TALT can handle the transformer model's inputs
+                    def model_forward(x):
+                        return self.model(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            token_type_ids=token_type_ids if token_type_ids is not None else None
+                        )
+                    
+                    # Call TALT's step method with our model forward function
+                    loss_val, outputs = self.optimizer.step(
+                        lambda x, y: self.criterion(model_forward(x), y),
+                        input_ids,  # Placeholder input
+                        labels
+                    )
+                    
+                else:  # For CNN models - simple (inputs, labels) format
+                    inputs, labels = batch
+                    inputs, labels = inputs.to(self.device), labels.to(self.device)
+                    
+                    # Let TALT handle the full forward/backward/optimize process
+                    loss_val, outputs = self.optimizer.step(self.criterion, inputs, labels)
                 
-                self.optimizer.zero_grad()
+                # TALT returns the loss value directly, not a tensor
+                loss = torch.tensor(loss_val) if not isinstance(loss_val, torch.Tensor) else loss_val
                 
-                if self.mixed_precision and self.scaler is not None:
-                    with autocast():
+            else:  # Standard PyTorch optimizers
+                # Handle different dataset types
+                if isinstance(batch, dict):  # For BERT/transformer models
+                    input_ids = batch['input_ids'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
+                    token_type_ids = batch.get('token_type_ids')
+                    if token_type_ids is not None:
+                        token_type_ids = token_type_ids.to(self.device)
+                    labels = batch['labels'].to(self.device)
+                    
+                    self.optimizer.zero_grad()
+                    
+                    if self.mixed_precision and self.scaler is not None:
+                        with autocast():
+                            outputs = self.model(
+                                input_ids=input_ids,
+                                attention_mask=attention_mask,
+                                token_type_ids=token_type_ids
+                            )
+                            loss = self.criterion(outputs, labels)
+                        
+                        self.scaler.scale(loss).backward()
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
                         outputs = self.model(
                             input_ids=input_ids,
                             attention_mask=attention_mask,
                             token_type_ids=token_type_ids
                         )
                         loss = self.criterion(outputs, labels)
+                        loss.backward()
+                        self.optimizer.step()
+                
+                else:  # For CNN models
+                    inputs, labels = batch
+                    inputs, labels = inputs.to(self.device), labels.to(self.device)
                     
-                    self.scaler.scale(loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    outputs = self.model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        token_type_ids=token_type_ids
-                    )
-                    loss = self.criterion(outputs, labels)
-                    loss.backward()
-                    self.optimizer.step()
-                
-                _, predicted = torch.max(outputs, 1)
-                
-            else:  # For CNN models
-                inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
-                
-                self.optimizer.zero_grad()
-                
-                if self.mixed_precision and self.scaler is not None:
-                    with autocast():
+                    self.optimizer.zero_grad()
+                    
+                    if self.mixed_precision and self.scaler is not None:
+                        with autocast():
+                            outputs = self.model(inputs)
+                            loss = self.criterion(outputs, labels)
+                        
+                        self.scaler.scale(loss).backward()
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
                         outputs = self.model(inputs)
                         loss = self.criterion(outputs, labels)
-                    
-                    self.scaler.scale(loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    outputs = self.model(inputs)
-                    loss = self.criterion(outputs, labels)
-                    loss.backward()
-                    self.optimizer.step()
-                
-                _, predicted = torch.max(outputs, 1)
+                        loss.backward()
+                        self.optimizer.step()
             
+            # Calculate metrics
+            _, predicted = torch.max(outputs, 1)
             total_loss += loss.item()
             correct += (predicted == labels).sum().item()
             total += labels.size(0)

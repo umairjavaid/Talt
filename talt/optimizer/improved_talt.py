@@ -404,6 +404,39 @@ class ImprovedTALTOptimizer:
 
         return loss_value, out
 
+    def zero_grad(self, set_to_none: bool = False):
+        """Zero gradients of the base optimizer for PyTorch compatibility.
+        
+        Args:
+            set_to_none: Whether to set gradients to None instead of zero
+        """
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
+    @property
+    def param_groups(self):
+        """Expose param_groups for scheduler compatibility."""
+        return self.optimizer.param_groups
+    
+    @param_groups.setter
+    def param_groups(self, value):
+        """Set param_groups for scheduler compatibility."""
+        self.optimizer.param_groups = value
+    
+    def state_dict(self):
+        """Return optimizer state dict for checkpoint saving."""
+        # Return a dict containing both base optimizer state and TALT-specific state
+        state_dict = {
+            'base_optimizer': self.optimizer.state_dict(),
+            'steps': self.steps,
+            # We're not saving internal tracking variables as they're regenerated
+        }
+        return state_dict
+    
+    def load_state_dict(self, state_dict):
+        """Load optimizer state dict for checkpoint loading."""
+        self.optimizer.load_state_dict(state_dict['base_optimizer'])
+        self.steps = state_dict['steps']
+
     def shutdown(self) -> None:
         """Clean up resources."""
         # Cancel any pending tasks
