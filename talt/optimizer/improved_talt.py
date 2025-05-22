@@ -12,13 +12,8 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 
-# Version-aware imports for PyTorch compatibility
-try:
-    # For PyTorch >= 1.10
-    from torch.amp import autocast, GradScaler
-except ImportError:
-    # Fallback for PyTorch < 1.10
-    from torch.cuda.amp import autocast, GradScaler
+# Direct imports without version fallbacks
+from torch.amp import autocast, GradScaler
 
 from talt.components import (
     RandomProjection,
@@ -99,7 +94,7 @@ class ImprovedTALTOptimizer:
         self.max_visualization_points = max_visualization_points
 
         # Initialize GradScaler for mixed precision
-        self.scaler = GradScaler()  # Fixed: Removed invalid 'cuda' parameter
+        self.scaler = GradScaler()
 
         # Tracking variables
         self.steps = 0

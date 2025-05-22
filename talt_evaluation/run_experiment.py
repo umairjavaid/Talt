@@ -41,51 +41,59 @@ logger = logging.getLogger('talt_experiment')
 def parse_args():
     parser = argparse.ArgumentParser(description='Run TALT optimization experiments')
     
+    # Add argument aliases to handle both hyphen and underscore formats
     # Basic experiment configuration
-    parser.add_argument('--name', type=str, required=True, help='Experiment name')
-    parser.add_argument('--architecture', type=str, required=True, 
+    parser.add_argument('--name', '--name', type=str, required=True, help='Experiment name')
+    parser.add_argument('--architecture', '--architecture', type=str, required=True, 
                         choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base'],
                         help='Neural network architecture')
-    parser.add_argument('--dataset', type=str, required=True, 
+    parser.add_argument('--dataset', '--dataset', type=str, required=True, 
                         choices=['cifar10', 'cifar100', 'glue-sst2'],
                         help='Dataset to use for training and evaluation')
-    parser.add_argument('--optimizer', type=str, required=True, 
+    parser.add_argument('--optimizer', '--optimizer', type=str, required=True, 
                         choices=['talt', 'sgd', 'adam'],
                         help='Optimizer to use for training')
     
     # Training parameters
-    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
-    parser.add_argument('--lr', type=float, default=0.1, help='Base learning rate')
-    parser.add_argument('--weight-decay', type=float, default=5e-4, help='Weight decay')
-    parser.add_argument('--mixed-precision', action='store_true', help='Use mixed precision training')
+    parser.add_argument('--epochs', '--epochs', type=int, default=30, help='Number of epochs')
+    parser.add_argument('--batch-size', '--batch_size', type=int, default=128, help='Batch size')
+    parser.add_argument('--lr', '--lr', type=float, default=0.1, help='Base learning rate')
+    parser.add_argument('--weight-decay', '--weight_decay', type=float, default=5e-4, help='Weight decay')
+    parser.add_argument('--mixed-precision', '--mixed_precision', action='store_true', help='Use mixed precision training')
     
     # TALT specific parameters
-    parser.add_argument('--projection-dim', type=int, default=64, help='TALT projection dimension')
-    parser.add_argument('--memory-size', type=int, default=10, help='TALT memory size')
-    parser.add_argument('--update-interval', type=int, default=100, help='TALT update interval')
-    parser.add_argument('--valley-strength', type=float, default=0.1, help='TALT valley strength')
-    parser.add_argument('--smoothing-factor', type=float, default=0.9, help='TALT smoothing factor')
-    parser.add_argument('--grad-store-interval', type=int, default=10, help='TALT gradient store interval')
-    parser.add_argument('--cov-decay', type=float, default=0.99, help='TALT covariance decay')
-    parser.add_argument('--adaptive-reg', type=float, default=1e-5, help='TALT adaptive regularization')
+    parser.add_argument('--projection-dim', '--projection_dim', type=int, default=64, help='TALT projection dimension')
+    parser.add_argument('--memory-size', '--memory_size', type=int, default=10, help='TALT memory size')
+    parser.add_argument('--update-interval', '--update_interval', type=int, default=100, help='TALT update interval')
+    parser.add_argument('--valley-strength', '--valley_strength', type=float, default=0.1, help='TALT valley strength')
+    parser.add_argument('--smoothing-factor', '--smoothing_factor', type=float, default=0.9, help='TALT smoothing factor')
+    parser.add_argument('--grad-store-interval', '--grad_store_interval', type=int, default=10, help='TALT gradient store interval')
+    parser.add_argument('--cov-decay', '--cov_decay', type=float, default=0.99, help='TALT covariance decay')
+    parser.add_argument('--adaptive-reg', '--adaptive_reg', type=float, default=1e-5, help='TALT adaptive regularization')
     
     # Hyperparameter tuning
-    parser.add_argument('--tune-hyperparams', action='store_true', help='Tune TALT hyperparameters')
-    parser.add_argument('--n-trials', type=int, default=30, help='Number of hyperparameter tuning trials')
-    parser.add_argument('--study-name', type=str, default=None, help='Optuna study name')
+    parser.add_argument('--tune-hyperparams', '--tune_hyperparams', action='store_true', help='Tune TALT hyperparameters')
+    parser.add_argument('--n-trials', '--n_trials', type=int, default=30, help='Number of hyperparameter tuning trials')
+    parser.add_argument('--study-name', '--study_name', type=str, default=None, help='Optuna study name')
     
     # Experiment output
-    parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
-    parser.add_argument('--save-checkpoints', action='store_true', help='Save model checkpoints')
-    parser.add_argument('--checkpoint-interval', type=int, default=5, help='Interval for saving checkpoints')
-    parser.add_argument('--resume-from', type=str, default=None, help='Resume from checkpoint')
+    parser.add_argument('--output-dir', '--output_dir', type=str, default='./results', help='Output directory')
+    parser.add_argument('--save-checkpoints', '--save_checkpoints', action='store_true', help='Save model checkpoints')
+    parser.add_argument('--checkpoint-interval', '--checkpoint_interval', type=int, default=5, help='Interval for saving checkpoints')
+    parser.add_argument('--resume-from', '--resume_from', type=str, default=None, help='Resume from checkpoint')
     
     # Hardware configuration
-    parser.add_argument('--gpu-index', type=int, default=0, help='GPU index')
-    parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
+    parser.add_argument('--gpu-index', '--gpu_index', type=int, default=0, help='GPU index')
+    parser.add_argument('--num-workers', '--num_workers', type=int, default=4, help='Number of data loading workers')
     
-    return parser.parse_args()
+    # Parse and process arguments to handle potential duplicates
+    args, unknown = parser.parse_known_args()
+    
+    # Log any unknown arguments
+    if unknown:
+        logger.warning(f"Unknown arguments: {unknown}")
+    
+    return args
 
 def main():
     args = parse_args()

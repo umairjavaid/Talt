@@ -19,18 +19,26 @@ logger = logging.getLogger('talt_batch_experiment')
 def parse_args():
     parser = argparse.ArgumentParser(description='Run batch of TALT optimization experiments')
     
-    parser.add_argument('--config', type=str, required=True, 
+    # Support both hyphen and underscore versions of arguments
+    parser.add_argument('--config', '--config', type=str, required=True, 
                         help='Path to batch configuration JSON file')
-    parser.add_argument('--output-dir', type=str, default='./results', 
+    parser.add_argument('--output-dir', '--output_dir', type=str, default='./results', 
                         help='Base output directory for all experiments')
-    parser.add_argument('--gpu-indices', type=str, default='0', 
+    parser.add_argument('--gpu-indices', '--gpu_indices', type=str, default='0', 
                         help='Comma-separated list of GPU indices to use')
-    parser.add_argument('--parallel', action='store_true', 
+    parser.add_argument('--parallel', '--parallel', action='store_true', 
                         help='Run experiments in parallel if multiple GPUs are specified')
-    parser.add_argument('--max-parallel', type=int, default=None, 
+    parser.add_argument('--max-parallel', '--max_parallel', type=int, default=None, 
                         help='Maximum number of parallel experiments')
     
-    return parser.parse_args()
+    # Parse and handle any unknown arguments
+    args, unknown = parser.parse_known_args()
+    
+    # Log any unknown arguments
+    if unknown:
+        logger.warning(f"Unknown arguments: {unknown}")
+    
+    return args
 
 def run_experiment(cmd, gpu_index):
     """Run a single experiment with the specified GPU index."""
