@@ -18,12 +18,16 @@ project_root = os.path.abspath(os.path.join(script_dir, '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Import project modules from talt_evaluation package
-from talt_evaluation.datasets import get_dataset
-from talt_evaluation.architectures import get_architecture
-from talt_evaluation.hyperparameter_tuning import TaltTuner
-from talt_evaluation.visualization import create_training_report
-from talt_evaluation.experiments import Experiment
+# Import project modules
+try:
+    from talt_evaluation.datasets import get_dataset
+    from talt_evaluation.architectures import get_architecture
+    from talt_evaluation.hyperparameter_tuning import TaltTuner
+    from talt_evaluation.visualization import create_training_report
+    from talt_evaluation.experiments import Experiment
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+    sys.exit(1)
 
 # Configure logging
 logging.basicConfig(

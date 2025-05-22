@@ -42,6 +42,10 @@ def run_experiment(cmd, gpu_index):
     script_dir = os.path.dirname(script_path)
     project_root = os.path.abspath(os.path.join(script_dir, '..'))
     
+    # Make sure we don't duplicate the path in the command
+    if cmd_with_gpu.startswith("python talt_evaluation/"):
+        cmd_with_gpu = f"python {os.path.join(project_root, cmd_with_gpu[7:])}"
+    
     process = subprocess.Popen(
         cmd_with_gpu,
         shell=True,

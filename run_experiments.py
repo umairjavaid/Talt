@@ -36,11 +36,14 @@ def run_single_experiment(args):
         if key == 'command':
             continue
         
+        # Convert underscores to hyphens in argument names
+        arg_name = key.replace('_', '-')
+        
         if isinstance(value, bool):
             if value:
-                cmd.append(f"--{key}")
+                cmd.append(f"--{arg_name}")
         elif value is not None:
-            cmd.append(f"--{key}")
+            cmd.append(f"--{arg_name}")
             cmd.append(str(value))
     
     # Join the command into a string

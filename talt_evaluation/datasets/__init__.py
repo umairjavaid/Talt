@@ -1,26 +1,29 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .cifar import get_cifar_dataset
-from .glue import get_glue_dataset
+# Provide higher level dataset access functions
+from .cifar import get_cifar10_dataset, get_cifar100_dataset
+# Import the following modules only when needed to avoid circular imports
+# from .glue import get_glue_dataset
 
-def get_dataset(dataset_name, batch_size=128, num_workers=4):
+def get_dataset(name, **kwargs):
     """
-    Get train, validation, and test data loaders for the specified dataset.
+    Main entry point for getting datasets.
     
     Args:
-        dataset_name: Name of the dataset ('cifar10', 'cifar100', 'glue-sst2')
-        batch_size: Batch size for data loaders
-        num_workers: Number of workers for data loading
+        name: Dataset name (cifar10, cifar100, glue-sst2, etc.)
+        **kwargs: Additional arguments for dataset loading
     
     Returns:
-        tuple: (train_loader, val_loader, test_loader)
+        train_loader, val_loader, test_loader: Data loaders for train, validation, and test sets
     """
-    if dataset_name.lower() == 'cifar10':
-        return get_cifar_dataset(10, batch_size, num_workers)
-    elif dataset_name.lower() == 'cifar100':
-        return get_cifar_dataset(100, batch_size, num_workers)
-    elif dataset_name.lower() == 'glue-sst2':
-        return get_glue_dataset('sst2', batch_size, num_workers)
+    if name == 'cifar10':
+        return get_cifar10_dataset(**kwargs)
+    elif name == 'cifar100':
+        return get_cifar100_dataset(**kwargs)
+    elif name.startswith('glue-'):
+        # Import only when needed to avoid circular import
+        from .glue import get_glue_dataset
+        return get_glue_dataset(name[5:], **kwargs)  # Remove 'glue-' prefix
     else:
-        raise ValueError(f"Unsupported dataset: {dataset_name}")
+        raise ValueError(f"Dataset {name} not supported")
