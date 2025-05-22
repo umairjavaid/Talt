@@ -26,7 +26,9 @@ try:
     from talt_evaluation.visualization import create_training_report
     from talt_evaluation.experiments import Experiment
 except ImportError as e:
-    print(f"Error importing modules: {e}")
+    missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
+    print(f"Error: Missing required module '{missing_module}'. Please install with: pip install {missing_module}")
+    print(f"Full error: {e}")
     sys.exit(1)
 
 # Configure logging

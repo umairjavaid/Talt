@@ -9,9 +9,16 @@ import logging
 import psutil
 import numpy as np
 from collections import deque
-from torch.amp import autocast, GradScaler
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
+
+# Version-aware imports for PyTorch compatibility
+try:
+    # For PyTorch >= 1.10
+    from torch.amp import autocast, GradScaler
+except ImportError:
+    # Fallback for PyTorch < 1.10
+    from torch.cuda.amp import autocast, GradScaler
 
 from talt.components import (
     RandomProjection,
@@ -191,8 +198,9 @@ class ImprovedTALTOptimizer:
 
                 # Transform the gradient
                 # First, compute the component in valley direction
-                valley_dir = valley_dir.to(self.device)
-                valley_component = torch.dot(flat_grad, valley_dir) * valley_dir  # Fixed: Added missing line
+                # Ensure valley_dir is on the same device as flat_grad for consistent operations
+                valley_dir = valley_dir.to(flat_grad.device)
+                valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
                 flat_grad = flat_grad + self.valley_strength * valley_component
 
             # Apply curvature-based transformation
@@ -286,9 +294,18 @@ class ImprovedTALTOptimizer:
 
     def _update_topology_async(self) -> None:
         """Update topology asynchronously."""
-        if self._topology_update_future and not self._topology_update_future.done():
-            return
-
+        # Clean up completed futures to prevent memory leaks
+        if self._topology_update_future:
+            if self._topology_update_future.done():
+                try:
+                    # Get result and handle any exceptions
+                    self._topology_update_future.result()
+                except Exception as e:
+                    logger.warning(f"Topology update failed: {e}")
+            elif not self._topology_update_future.cancelled():
+                return  # Still running, don't start a new one
+                
+        # Start new topology update
         self._topology_update_future = self.executor.submit(self._update_topology)
 
     def step(self, loss_fn: Callable, x: torch.Tensor, y: torch.Tensor) -> Tuple[float, torch.Tensor]:

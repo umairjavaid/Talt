@@ -171,8 +171,9 @@ def train_and_evaluate_improved(
             device=device
         )
         
-        # Add base_optimizer property access for scheduler compatibility
-        optimizer.optimizer = optimizer.optimizer  # Use existing optimizer
+        # Ensure scheduler compatibility
+        if hasattr(optimizer, 'optimizer') and not hasattr(optimizer, 'param_groups'):
+            optimizer.param_groups = optimizer.optimizer.param_groups
     else:
         print(f"Using standard SGD optimizer with lr={learning_rate}")
         optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)

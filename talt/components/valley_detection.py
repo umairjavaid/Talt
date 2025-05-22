@@ -31,8 +31,9 @@ class ValleyDetector:
         Args:
             grad: Current gradient
         """
-        # Store normalized gradient
-        grad_norm = grad / (torch.norm(grad) + 1e-10)
+        # Store normalized gradient with more robust epsilon and clamping
+        eps = 1e-8
+        grad_norm = grad / torch.clamp(torch.norm(grad), min=eps)
         self.grad_history.append(grad_norm.cpu())
 
     def detect_valley(self) -> Tuple[bool, Optional[torch.Tensor]]:

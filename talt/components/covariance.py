@@ -55,7 +55,8 @@ class IncrementalCovariance:
 
             # Update covariance
             delta2 = x_i - self.mean
-            self.cov += torch.outer(delta, delta2) / max(1, self.n_samples - 1)
+            factor = 1.0 / max(1, self.n_samples - 1)
+            self.cov += torch.outer(delta, delta2) * factor
 
     def get_covariance(self, reg: float = 1e-6) -> torch.Tensor:
         """

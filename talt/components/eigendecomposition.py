@@ -33,6 +33,9 @@ class PowerIteration:
         Returns:
             Tuple of (eigenvalues, eigenvectors)
         """
+        # Create a copy to avoid modifying the original matrix
+        matrix = matrix.clone()
+        
         n = matrix.shape[0]
         k = min(k, n)
 

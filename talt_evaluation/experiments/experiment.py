@@ -100,8 +100,18 @@ class Experiment:
             try:
                 # Fixed: Use ImprovedTALTOptimizer instead of TALT
                 from talt.optimizer import ImprovedTALTOptimizer as TALT
+                # Create base optimizer factory to pass to TALT
+                base_optimizer = lambda params, lr: torch.optim.SGD(
+                    params, 
+                    lr=lr, 
+                    momentum=self.optimizer_config.get('momentum', 0.9),
+                    weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
+                )
+                
                 optimizer = TALT(
-                    self.model.parameters(),
+                    model=self.model,
+                    base_optimizer=base_optimizer,
+                    lr=self.optimizer_config.get('lr', 0.01),
                     **self.optimizer_config
                 )
                 logger.info("Created TALT optimizer")

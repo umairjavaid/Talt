@@ -94,9 +94,9 @@ class TaltTuner:
         
         # Create optimizer
         optimizer = TALT(
-            self.model.parameters(),
+            model=self.model,
+            base_optimizer=lambda params, lr: torch.optim.SGD(params, lr=lr, momentum=0.9, weight_decay=weight_decay),
             lr=lr,
-            weight_decay=weight_decay,
             **params
         )
         
