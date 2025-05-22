@@ -98,45 +98,74 @@ class Experiment:
         """
         if self.optimizer_type == 'talt':
             try:
-                # Fixed: Use ImprovedTALTOptimizer instead of TALT
+                # Import TALT optimizer
                 from talt.optimizer import ImprovedTALTOptimizer as TALT
-                # Create base optimizer factory to pass to TALT
+                
+                # Extract base optimizer parameters
+                base_optimizer_params = {
+                    'lr': self.optimizer_config.get('lr', 0.01),
+                    'momentum': self.optimizer_config.get('momentum', 0.9),
+                    'weight_decay': self.optimizer_config.get('weight_decay', 5e-4)
+                }
+                
+                # Extract TALT-specific parameters
+                talt_params = {
+                    'lr': self.optimizer_config.get('lr', 0.01),
+                    'projection_dim': self.optimizer_config.get('projection_dim', 32),
+                    'memory_size': self.optimizer_config.get('memory_size', 10),
+                    'update_interval': self.optimizer_config.get('update_interval', 20),
+                    'valley_strength': self.optimizer_config.get('valley_strength', 0.2),
+                    'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.3),
+                    'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
+                    'cov_decay': self.optimizer_config.get('cov_decay', 0.95),
+                    'adaptive_reg': self.optimizer_config.get('adaptive_reg', True),
+                    'device': self.device
+                }
+                
+                # Create base optimizer factory that properly receives the base parameters
                 base_optimizer = lambda params, lr: torch.optim.SGD(
                     params, 
-                    lr=lr, 
-                    momentum=self.optimizer_config.get('momentum', 0.9),
-                    weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
+                    lr=lr,
+                    momentum=base_optimizer_params['momentum'],
+                    weight_decay=base_optimizer_params['weight_decay']
                 )
                 
-                # Fix: Avoid passing 'lr' twice by using a copy of optimizer_config without the 'lr' key
-                talt_config = self.optimizer_config.copy()
-                lr_value = talt_config.pop('lr', 0.01)  # Extract and remove lr from the config dict
-                
+                # Create TALT optimizer with appropriate parameters
                 optimizer = TALT(
                     model=self.model,
                     base_optimizer=base_optimizer,
-                    lr=lr_value,
-                    **talt_config
+                    **talt_params
                 )
-                logger.info("Created TALT optimizer")
-            except ImportError:
-                logger.error("TALT optimizer not available. Install TALT package first.")
+                logger.info("Created TALT optimizer with properly separated parameters")
+            except ImportError as e:
+                logger.error(f"TALT optimizer not available: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Error creating TALT optimizer: {e}")
                 raise
         elif self.optimizer_type == 'sgd':
-            optimizer = torch.optim.SGD(
-                self.model.parameters(),
-                lr=self.optimizer_config.get('lr', 0.1),
-                momentum=self.optimizer_config.get('momentum', 0.9),
-                weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
-            )
-            logger.info("Created SGD optimizer")
+            try:
+                optimizer = torch.optim.SGD(
+                    self.model.parameters(),
+                    lr=self.optimizer_config.get('lr', 0.1),
+                    momentum=self.optimizer_config.get('momentum', 0.9),
+                    weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
+                )
+                logger.info("Created SGD optimizer")
+            except Exception as e:
+                logger.error(f"Error creating SGD optimizer: {e}")
+                raise
         elif self.optimizer_type == 'adam':
-            optimizer = torch.optim.Adam(
-                self.model.parameters(),
-                lr=self.optimizer_config.get('lr', 0.001),
-                weight_decay=self.optimizer_config.get('weight_decay', 0)
-            )
-            logger.info("Created Adam optimizer")
+            try:
+                optimizer = torch.optim.Adam(
+                    self.model.parameters(),
+                    lr=self.optimizer_config.get('lr', 0.001),
+                    weight_decay=self.optimizer_config.get('weight_decay', 0)
+                )
+                logger.info("Created Adam optimizer")
+            except Exception as e:
+                logger.error(f"Error creating Adam optimizer: {e}")
+                raise
         else:
             raise ValueError(f"Unsupported optimizer type: {self.optimizer_type}")
         

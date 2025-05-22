@@ -23,17 +23,19 @@ class EfficientNetModel(BaseArchitecture):
         self.model_variant = model_variant
         self.num_classes = num_classes
         
-        # Initialize the EfficientNet model
+        # Initialize the EfficientNet model with updated API
+        weights_value = None if not pretrained else "IMAGENET1K_V1"
+        
         if model_variant == 'b0':
-            base_model = models.efficientnet_b0(pretrained=pretrained)
+            base_model = models.efficientnet_b0(weights=weights_value)
         elif model_variant == 'b1':
-            base_model = models.efficientnet_b1(pretrained=pretrained)
+            base_model = models.efficientnet_b1(weights=weights_value)
         elif model_variant == 'b2':
-            base_model = models.efficientnet_b2(pretrained=pretrained)
+            base_model = models.efficientnet_b2(weights=weights_value)
         elif model_variant == 'b3':
-            base_model = models.efficientnet_b3(pretrained=pretrained)
+            base_model = models.efficientnet_b3(weights=weights_value)
         elif model_variant == 'b4':
-            base_model = models.efficientnet_b4(pretrained=pretrained)
+            base_model = models.efficientnet_b4(weights=weights_value)
         else:
             raise ValueError(f"Unsupported EfficientNet variant: {model_variant}")
         

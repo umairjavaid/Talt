@@ -61,46 +61,60 @@ class TaltTuner:
         Returns:
             TALT optimizer instance
         """
-        # Fixed: Use ImprovedTALTOptimizer instead of TALT
+        # Import TALT optimizer
         from talt.optimizer import ImprovedTALTOptimizer as TALT
         
-        # Fixed parameters
-        lr = 0.1 if self.model.model_type == 'cnn' else 2e-5
-        weight_decay = 5e-4 if self.model.model_type == 'cnn' else 0.01
+        # Fixed parameters for base optimizer
+        base_params = {
+            'lr': 0.1 if self.model.model_type == 'cnn' else 2e-5,
+            'weight_decay': 5e-4 if self.model.model_type == 'cnn' else 0.01,
+            'momentum': 0.9
+        }
         
-        # Sample hyperparameters from search space
-        params = {}
+        # Sample TALT-specific hyperparameters from search space
+        talt_params = {}
         for param_name, param_config in self.search_space.items():
             if param_config['type'] == 'int':
-                params[param_name] = trial.suggest_int(
+                talt_params[param_name] = trial.suggest_int(
                     param_name, 
                     param_config['low'], 
                     param_config['high']
                 )
             elif param_config['type'] == 'float':
                 if param_config.get('log', False):
-                    params[param_name] = trial.suggest_float(
+                    talt_params[param_name] = trial.suggest_float(
                         param_name, 
                         param_config['low'], 
                         param_config['high'],
                         log=True
                     )
                 else:
-                    params[param_name] = trial.suggest_float(
+                    talt_params[param_name] = trial.suggest_float(
                         param_name, 
                         param_config['low'], 
                         param_config['high']
                     )
         
-        # Create optimizer
-        optimizer = TALT(
-            model=self.model,
-            base_optimizer=lambda params, lr: torch.optim.SGD(params, lr=lr, momentum=0.9, weight_decay=weight_decay),
-            lr=lr,
-            **params
+        # Add device and lr to TALT parameters
+        talt_params['device'] = self.device
+        talt_params['lr'] = base_params['lr']
+        
+        # Create base optimizer factory with appropriate parameters
+        base_optimizer = lambda params, lr: torch.optim.SGD(
+            params, 
+            lr=lr, 
+            momentum=base_params['momentum'], 
+            weight_decay=base_params['weight_decay']
         )
         
-        return optimizer, params
+        # Create optimizer with properly separated parameters
+        optimizer = TALT(
+            model=self.model,
+            base_optimizer=base_optimizer,
+            **talt_params
+        )
+        
+        return optimizer, talt_params
     
     def _train_epoch(self, model, train_loader, optimizer, criterion, device, scaler=None):
         """

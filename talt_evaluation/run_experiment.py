@@ -131,7 +131,8 @@ def main():
     # Configure optimizer parameters
     optimizer_config = {
         'lr': args.lr,
-        'weight_decay': args.weight_decay
+        'weight_decay': args.weight_decay,
+        'momentum': 0.9  # Adding default momentum
     }
     
     # Add TALT specific parameters if applicable
@@ -144,7 +145,8 @@ def main():
             'smoothing_factor': args.smoothing_factor,
             'grad_store_interval': args.grad_store_interval,
             'cov_decay': args.cov_decay,
-            'adaptive_reg': args.adaptive_reg
+            'adaptive_reg': args.adaptive_reg,
+            'device': device  # Explicitly include device parameter
         }
         optimizer_config.update(talt_params)
     
