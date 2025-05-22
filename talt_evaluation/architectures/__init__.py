@@ -8,13 +8,14 @@ import torchvision.models as models
 from .base import BaseArchitecture
 from talt.model import SimpleCNN
 
-def get_architecture(architecture_name, dataset_name="cifar10", **kwargs):
+def get_architecture(architecture_name, dataset_name="cifar10", pretrained=False, **kwargs):
     """
     Get architecture model by name
     
     Args:
         architecture_name (str): Name of the architecture
         dataset_name (str): Name of the dataset
+        pretrained (bool): Whether to use pretrained weights
         **kwargs: Additional arguments for the model
         
     Returns:
@@ -27,11 +28,15 @@ def get_architecture(architecture_name, dataset_name="cifar10", **kwargs):
     if architecture_name.lower() == "simplecnn":
         return SimpleCNN(num_classes=num_classes, **kwargs)
     elif architecture_name.lower() == "resnet18":
-        model = models.resnet18(pretrained=False, **kwargs)
+        # Use weights parameter instead of pretrained
+        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
+        model = models.resnet18(weights=weights, **kwargs)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
         return model
     elif architecture_name.lower() == "mobilenetv2":
-        model = models.mobilenet_v2(pretrained=False, **kwargs)
+        # Use weights parameter instead of pretrained
+        weights = models.MobileNet_V2_Weights.DEFAULT if pretrained else None
+        model = models.mobilenet_v2(weights=weights, **kwargs)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
         return model
     else:

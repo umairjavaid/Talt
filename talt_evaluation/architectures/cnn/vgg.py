@@ -23,15 +23,19 @@ class VGGModel(BaseArchitecture):
         self.depth = depth
         self.num_classes = num_classes
         
-        # Initialize the VGG model with batch normalization
+        # Initialize the VGG model with batch normalization using the newer weights API
         if depth == 11:
-            base_model = models.vgg11_bn(pretrained=pretrained)
+            weights = models.VGG11_BN_Weights.DEFAULT if pretrained else None
+            base_model = models.vgg11_bn(weights=weights)
         elif depth == 13:
-            base_model = models.vgg13_bn(pretrained=pretrained)
+            weights = models.VGG13_BN_Weights.DEFAULT if pretrained else None
+            base_model = models.vgg13_bn(weights=weights)
         elif depth == 16:
-            base_model = models.vgg16_bn(pretrained=pretrained)
+            weights = models.VGG16_BN_Weights.DEFAULT if pretrained else None
+            base_model = models.vgg16_bn(weights=weights)
         elif depth == 19:
-            base_model = models.vgg19_bn(pretrained=pretrained)
+            weights = models.VGG19_BN_Weights.DEFAULT if pretrained else None
+            base_model = models.vgg19_bn(weights=weights)
         else:
             raise ValueError(f"Unsupported VGG depth: {depth}")
         
