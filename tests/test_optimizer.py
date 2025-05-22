@@ -5,26 +5,39 @@ Unit tests for ImprovedTALTOptimizer.
 import unittest
 import torch
 import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
+from torch.amp import GradScaler
 import numpy as np
 import gc
 import os
 import time
-from torch.amp import GradScaler
-import tempfile
-import psutil
+
 from talt.optimizer import ImprovedTALTOptimizer
 from talt.model import SimpleCNN
+
+class SimpleTestModel(nn.Module):
+    """A simple model for testing optimizers"""
+    def __init__(self):
+        super(SimpleTestModel, self).__init__()
+        self.fc1 = nn.Linear(10, 20)
+        self.fc2 = nn.Linear(20, 5)
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        return self.fc2(x)
 
 class TestImprovedTALTOptimizer(unittest.TestCase):
     """Test the ImprovedTALTOptimizer."""
     
     def setUp(self):
         """Set up test environment."""
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = SimpleCNN(num_classes=10).to(self.device)
+        torch.manual_seed(42)  # For reproducibility
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Use CPU for testing
+        self.model = SimpleTestModel().to(self.device)
         
         # Define base optimizer factory function
-        self.base_optimizer = lambda params, lr: torch.optim.SGD(
+        self.base_optimizer = lambda params, lr: optim.SGD(
             params, lr=lr, momentum=0.9, weight_decay=1e-4
         )
 
@@ -167,6 +180,92 @@ class TestImprovedTALTOptimizer(unittest.TestCase):
             passed = False
             
         self.assertTrue(passed, "Scheduler compatibility fix failed")
+    
+    def test_state_dict_operations(self):
+        """Test saving and loading state dictionaries."""
+        # Create optimizer
+        optimizer = ImprovedTALTOptimizer(
+            model=self.model,
+            base_optimizer=self.base_optimizer,
+            lr=0.01,
+            projection_dim=16,
+            memory_size=5
+        )
+        
+        # Run a few steps to populate internal state
+        for inputs, targets in self.dataloader:
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            optimizer.step(self.criterion, inputs, targets)
+        
+        # Get state dict
+        state_dict = optimizer.state_dict()
+        
+        # Verify that state dict has expected keys
+        self.assertIn('base_optimizer', state_dict)
+        self.assertIn('steps', state_dict)
+        
+        # Create a new optimizer
+        new_optimizer = ImprovedTALTOptimizer(
+            model=self.model,
+            base_optimizer=self.base_optimizer,
+            lr=0.01,
+            projection_dim=16,
+            memory_size=5
+        )
+        
+        # Load state dict
+        new_optimizer.load_state_dict(state_dict)
+        
+        # Verify that state was restored
+        self.assertEqual(optimizer.steps, new_optimizer.steps)
+
+    def test_zero_grad_functionality(self):
+        """Test zero_grad method of the optimizer."""
+        # Create optimizer
+        optimizer = ImprovedTALTOptimizer(
+            model=self.model,
+            base_optimizer=self.base_optimizer,
+            lr=0.01
+        )
+        
+        # Set some gradients
+        for p in self.model.parameters():
+            p.grad = torch.ones_like(p)
+        
+        # Call zero_grad
+        optimizer.zero_grad()
+        
+        # Check that gradients are zeroed
+        for p in self.model.parameters():
+            self.assertTrue(torch.all(torch.eq(p.grad, torch.zeros_like(p))))
+    
+    def test_lr_adjustment_with_scheduler(self):
+        """Test learning rate adjustment with scheduler."""
+        # Create optimizer
+        optimizer = ImprovedTALTOptimizer(
+            model=self.model,
+            base_optimizer=self.base_optimizer,
+            lr=0.1
+        )
+        
+        # Create scheduler with significant step reduction
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
+        
+        # Initial learning rate
+        initial_lr = optimizer.optimizer.param_groups[0]['lr']
+        self.assertAlmostEqual(initial_lr, 0.1)
+        
+        # Run a few steps
+        for inputs, targets in self.dataloader:
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            optimizer.step(self.criterion, inputs, targets)
+        
+        # Step the scheduler
+        scheduler.step()
+        
+        # Check that learning rate was reduced
+        updated_lr = optimizer.optimizer.param_groups[0]['lr']
+        self.assertAlmostEqual(updated_lr, 0.01)
 
     def test_covariance_efficiency(self):
         """Test the efficiency of covariance operations."""

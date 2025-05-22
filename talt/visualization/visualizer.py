@@ -212,55 +212,66 @@ class ImprovedTALTVisualizer:
                                       save_path: Optional[str] = None, 
                                       show: bool = True) -> None:
         """
-        Visualize gradient norm history for all parameters.
-
+        Visualize gradient norm history over training iterations.
+        
         Args:
             save_path: Path to save the visualization
             show: Whether to display the plot
         """
+        # Check if we have any gradient stats to visualize
         if not self.data['gradient_stats']:
             print("No gradient statistics available for visualization")
             return
-            
+        
         plt.figure(figsize=(14, 8))
         
         # Plot gradient norms for each parameter
-        for name, stats in self.data['gradient_stats'].items():
+        for i, (param_name, stats) in enumerate(self.data['gradient_stats'].items()):
             if not stats:
                 continue
                 
+            # Extract data
             steps = [d['step'] for d in stats]
-            norms = [d['grad_norm'] for d in stats]
+            norms = [d.get('grad_norm', 0) for d in stats]
             
-            # Get shorter parameter name for legend
-            short_name = name.split('.')[-1]
-            plt.plot(steps, norms, linewidth=2, alpha=0.7, 
-                    label=f'{short_name}', marker='.', markersize=3)
+            # Create short readable parameter name
+            short_name = param_name.split('.')[-2] + '.' + param_name.split('.')[-1]
+            if len(short_name) > 30:
+                short_name = short_name[:27] + '...'
+            
+            # Plot gradient norm history
+            plt.plot(steps, norms, marker='o', markersize=4, linewidth=2, 
+                    label=f"{short_name}", alpha=0.8)
+        
+        # Mark bifurcation events
+        for step in self.data['bifurcations']:
+            plt.axvline(x=step, color='r', linestyle='--', alpha=0.3)
         
         # Add labels and legend
-        plt.xlabel('Training Steps')
+        plt.xlabel('Training Step')
         plt.ylabel('Gradient Norm')
         plt.title('Gradient Norm History')
         
-        # Use log scale for better visibility
+        # Add legend with reasonable size
+        if len(self.data['gradient_stats']) > 10:
+            plt.legend(loc='upper right', fontsize='small', ncol=2)
+        else:
+            plt.legend(loc='upper right')
+        
+        # Add grid and log scale if norms span multiple orders of magnitude
+        plt.grid(True, alpha=0.3)
         plt.yscale('log')
         
-        # Create compact legend with smaller font
-        plt.legend(loc='upper right', fontsize='small', 
-                 ncol=min(3, len(self.data['gradient_stats'])))
-        
-        plt.grid(True, alpha=0.3)
-            
         if save_path:
             full_path = os.path.join(self.output_dir, save_path)
             plt.savefig(full_path, dpi=300, bbox_inches='tight')
-            print(f"Gradient norm visualization saved to {full_path}")
+            print(f"Gradient norm history saved to {full_path}")
             
         if show:
             plt.show()
         else:
             plt.close()
-
+    
     def create_animation(self, fps: int = 5, save_path: str = "loss_animation.mp4") -> None:
         """
         Create an animation of the loss landscape.
@@ -341,374 +352,158 @@ class ImprovedTALTVisualizer:
         plt.close()
         print(f"Animation saved to {full_path}")
 
-    def generate_report(self, 
-                   experiment_name: str = "TALT_Experiment",
-                   include_animations: bool = False,
-                   include_advanced_visualizations: bool = True) -> None:
+    def generate_report(self, experiment_name: str = "TALT_Experiment") -> None:
         """
-        Generate a comprehensive visualization report including all available visualizations.
+        Generate a comprehensive visualization report.
         
         Args:
-            experiment_name: Name of the experiment
-            include_animations: Whether to include animations
-            include_advanced_visualizations: Whether to include advanced visualizations
+            experiment_name: Name of the experiment for the report
         """
-        # Create experiment directory
-        exp_dir = os.path.join(self.output_dir, experiment_name)
-        os.makedirs(exp_dir, exist_ok=True)
+        # Create a report directory
+        report_dir = os.path.join(self.output_dir, 'report')
+        os.makedirs(report_dir, exist_ok=True)
         
-        print(f"Generating visualization report in {exp_dir}...")
-        
-        # Generate basic visualizations
+        # Generate all visualizations
+        print("Generating loss trajectory visualization...")
         self.visualize_loss_trajectory(
-            save_path=os.path.join(exp_dir, "loss_trajectory.png"),
+            save_path=os.path.join(report_dir, 'loss_trajectory.png'),
             show=False
         )
         
-        for param_name in self.data['gradient_stats'].keys():
-            short_name = param_name.split('.')[-1]
-            self.visualize_eigenvalue_spectra(
-                parameter_name=param_name,
-                save_path=os.path.join(exp_dir, f"eigenvalues_{short_name}.png"),
-                show=False
-            )
-        
+        print("Generating gradient norm history...")
         self.visualize_gradient_norm_history(
-            save_path=os.path.join(exp_dir, "gradient_norms.png"),
+            save_path=os.path.join(report_dir, 'gradient_norm_history.png'),
             show=False
         )
         
-        # Generate advanced visualizations if requested
-        if include_advanced_visualizations:
-            try:
-                self.visualize_lr_schedule(
-                    save_path=os.path.join(exp_dir, "lr_schedule.png"),
+        # Generate eigenvalue spectra for a subset of parameters 
+        # (limit to avoid too many plots)
+        if self.data['gradient_stats']:
+            param_names = list(self.data['gradient_stats'].keys())
+            selected_params = param_names[:min(5, len(param_names))]
+            
+            for param_name in selected_params:
+                print(f"Generating eigenvalue spectra for {param_name.split('.')[-1]}...")
+                self.visualize_eigenvalue_spectra(
+                    parameter_name=param_name,
+                    save_path=os.path.join(report_dir, f'eigen_spectra_{param_name.split(".")[-1]}.png'),
                     show=False
                 )
-                
-                # Generate gradient distribution plots for a subset of parameters
-                for param_name in list(self.data['gradient_stats'].keys())[:2]:  # Limit to 2 parameters
-                    short_name = param_name.split('.')[-1]
-                    self.visualize_gradient_distribution(
-                        parameter_name=param_name,
-                        save_path=os.path.join(exp_dir, f"gradient_dist_{short_name}.png"),
-                        show=False
-                    )
-                
-                self.visualize_convergence_vs_time(
-                    save_path=os.path.join(exp_dir, "convergence_vs_time.png"),
-                    show=False
-                )
-                
-                # Note: multi-run comparisons require multiple run data to be available
-                if hasattr(self, 'multi_run_data') and self.multi_run_data:
-                    self.visualize_multi_run_comparison(
-                        run_results=self.multi_run_data,
-                        save_path=os.path.join(exp_dir, "multi_run_comparison.png"),
-                        show=False
-                    )
+        
+        # Generate HTML report
+        try:
+            from jinja2 import Template
+            import datetime
+            
+            # Load template
+            template_str = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>TALT Optimization Report - {{ experiment_name }}</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    h1 { color: #2c3e50; }
+                    h2 { color: #3498db; }
+                    .container { max-width: 1200px; margin: 0 auto; }
+                    .visualization { margin-bottom: 30px; }
+                    .stats-table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+                    .stats-table th, .stats-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    .stats-table tr:nth-child(even) { background-color: #f2f2f2; }
+                    .stats-table th { padding-top: 12px; padding-bottom: 12px; background-color: #3498db; color: white; }
+                    img { max-width: 100%; border: 1px solid #ddd; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>TALT Optimization Report - {{ experiment_name }}</h1>
+                    <p>Report generated on {{ timestamp }}</p>
                     
-                    self.visualize_time_to_threshold(
-                        run_results=self.multi_run_data,
-                        save_path=os.path.join(exp_dir, "time_to_threshold.png"),
-                        show=False
-                    )
-            except Exception as e:
-                print(f"Warning: Some advanced visualizations could not be generated: {e}")
-        
-        # Generate animations if requested
-        if include_animations:
-            self.create_animation(
-                save_path=os.path.join(exp_dir, "loss_animation.mp4")
-            )
-        
-        print(f"Visualization report generated in {exp_dir}")
-
-    def visualize_lr_schedule(self, 
-                             save_path: Optional[str] = None, 
-                             show: bool = True) -> None:
-        """
-        Visualize learning rate schedule overlaid on the loss curve.
-        
-        This visualization helps correlate learning rate changes with performance jumps.
-        
-        Args:
-            save_path: Path to save the visualization
-            show: Whether to display the plot
-        """
-        plt.figure(figsize=(10, 6))
-        
-        # Primary axis for loss
-        ax1 = plt.gca()
-        ax1.set_xlabel('Training Step')
-        ax1.set_ylabel('Loss')
-        ax1.plot(self.data['steps'], self.data['train_loss'], 'b-', label='Training Loss')
-        
-        # Secondary axis for learning rate
-        ax2 = ax1.twinx()
-        ax2.set_ylabel('Learning Rate', color='r')
-        ax2.plot(self.data['steps'], self.data['learning_rates'], 'r-', label='Learning Rate')
-        ax2.tick_params(axis='y', labelcolor='r')
-        
-        # Combine legends
-        lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
-        
-        plt.title('Learning Rate Schedule and Loss Trajectory')
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path)
-        
-        if show:
-            plt.show()
-        else:
-            plt.close()
-    
-    def visualize_gradient_distribution(self,
-                                       parameter_name: str,
-                                       steps: List[int] = None,
-                                       save_path: Optional[str] = None,
-                                       show: bool = True) -> None:
-        """
-        Visualize the distribution of gradient components at selected steps.
-        
-        This helps detect skewness or heavy tails in the gradient distribution.
-        
-        Args:
-            parameter_name: Name of parameter to visualize
-            steps: List of steps at which to plot distributions (default: evenly spaced steps)
-            save_path: Path to save the visualization
-            show: Whether to display the plot
-        """
-        if parameter_name not in self.data['gradient_stats']:
-            raise ValueError(f"Parameter {parameter_name} not found in gradient statistics")
-        
-        # If steps not provided, select evenly spaced steps
-        if steps is None:
-            num_steps = min(4, len(self.data['steps']))  # Maximum of 4 distributions
-            step_indices = np.linspace(0, len(self.data['steps'])-1, num_steps, dtype=int)
-            steps = [self.data['steps'][i] for i in step_indices]
-        
-        # Create a figure with subplots in a grid
-        n_plots = len(steps)
-        n_cols = min(2, n_plots)
-        n_rows = (n_plots + n_cols - 1) // n_cols
-        
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 3*n_rows))
-        if n_plots == 1:
-            axes = np.array([axes])
-        axes = axes.flatten()
-        
-        # For each step, plot histogram
-        for i, step in enumerate(steps):
-            if i >= len(axes):
-                break
+                    <div class="visualization">
+                        <h2>Loss Trajectory</h2>
+                        <img src="loss_trajectory.png" alt="Loss Trajectory">
+                        <p>This plot shows the loss over time, with valley detections marked as stars.</p>
+                    </div>
+                    
+                    <div class="visualization">
+                        <h2>Gradient Norm History</h2>
+                        <img src="gradient_norm_history.png" alt="Gradient Norm History">
+                        <p>This plot shows how gradient norms evolved during training.</p>
+                    </div>
+                    
+                    <h2>Eigenvalue Spectra</h2>
+                    {% for param in eigenvalue_params %}
+                    <div class="visualization">
+                        <h3>{{ param }}</h3>
+                        <img src="eigen_spectra_{{ param }}.png" alt="Eigenvalue Spectra for {{ param }}">
+                        <p>Evolution of the top eigenvalues for this parameter.</p>
+                    </div>
+                    {% endfor %}
+                    
+                    <div class="stats">
+                        <h2>Optimization Statistics</h2>
+                        <table class="stats-table">
+                            <tr>
+                                <th>Metric</th>
+                                <th>Value</th>
+                            </tr>
+                            <tr>
+                                <td>Total Training Steps</td>
+                                <td>{{ total_steps }}</td>
+                            </tr>
+                            <tr>
+                                <td>Valley Detections</td>
+                                <td>{{ valley_detections }}</td>
+                            </tr>
+                            <tr>
+                                <td>Final Loss</td>
+                                <td>{{ final_loss }}</td>
+                            </tr>
+                            <tr>
+                                <td>Parameters Tracked</td>
+                                <td>{{ params_tracked }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Get eigenvalue parameters for the report
+            eigenvalue_params = []
+            if self.data['gradient_stats']:
+                param_names = list(self.data['gradient_stats'].keys())
+                selected_params = param_names[:min(5, len(param_names))]
+                eigenvalue_params = [param.split('.')[-1] for param in selected_params]
+            
+            # Get final loss if available
+            final_loss = "N/A"
+            if self.data['loss_values']:
+                final_loss = f"{self.data['loss_values'][-1]:.6f}"
                 
-            # Find closest stored step
-            step_idx = np.argmin(np.abs(np.array(self.data['steps']) - step))
-            actual_step = self.data['steps'][step_idx]
+            # Prepare template data
+            template_data = {
+                'experiment_name': experiment_name,
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'total_steps': len(self.data['loss_values']),
+                'valley_detections': len(self.data['valley_detections']),
+                'final_loss': final_loss,
+                'params_tracked': len(self.data['gradient_stats']),
+                'eigenvalue_params': eigenvalue_params
+            }
             
-            # Get gradient data for this step
-            gradients = self.data['gradient_stats'][parameter_name].get(f'step_{actual_step}', None)
-            if gradients is None:
-                continue
+            # Render template
+            template = Template(template_str)
+            html_content = template.render(**template_data)
+            
+            # Write HTML report
+            report_path = os.path.join(report_dir, 'report.html')
+            with open(report_path, 'w') as f:
+                f.write(html_content)
                 
-            # Plot histogram or KDE
-            if isinstance(gradients, list) or isinstance(gradients, np.ndarray):
-                axes[i].hist(gradients, bins=30, alpha=0.7, density=True)
-                axes[i].set_title(f'Step {actual_step}')
-                axes[i].set_xlabel('Gradient Value')
-                axes[i].set_ylabel('Density')
+            print(f"HTML report generated at {report_path}")
             
-        # Hide unused subplots
-        for i in range(n_plots, len(axes)):
-            axes[i].axis('off')
-        
-        plt.suptitle(f'Gradient Distribution for {parameter_name.split(".")[-1]}')
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path)
-        
-        if show:
-            plt.show()
-        else:
-            plt.close()
-    
-    def visualize_convergence_vs_time(self,
-                                     save_path: Optional[str] = None,
-                                     show: bool = True) -> None:
-        """
-        Plot objective (loss/accuracy) against wall-clock time.
-        
-        This visualization shows real-world convergence speed rather than epoch-based.
-        
-        Args:
-            save_path: Path to save the visualization
-            show: Whether to display the plot
-        """
-        if 'wall_time' not in self.data:
-            raise ValueError("Wall-clock time data not available in the training data")
-        
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
-        
-        # Plot loss against wall time
-        ax1.plot(self.data['wall_time'], self.data['train_loss'], 'b-', label='Train Loss')
-        if 'val_loss' in self.data:
-            ax1.plot(self.data['wall_time'], self.data['val_loss'], 'g-', label='Validation Loss')
-        ax1.set_ylabel('Loss')
-        ax1.set_title('Loss vs Wall-clock Time')
-        ax1.legend()
-        ax1.grid(True)
-        
-        # Plot accuracy against wall time
-        if 'train_acc' in self.data:
-            ax2.plot(self.data['wall_time'], self.data['train_acc'], 'b-', label='Train Accuracy')
-        if 'val_acc' in self.data:
-            ax2.plot(self.data['wall_time'], self.data['val_acc'], 'g-', label='Validation Accuracy')
-        ax2.set_xlabel('Wall-clock Time (seconds)')
-        ax2.set_ylabel('Accuracy (%)')
-        ax2.set_title('Accuracy vs Wall-clock Time')
-        ax2.legend()
-        ax2.grid(True)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path)
-        
-        if show:
-            plt.show()
-        else:
-            plt.close()
-    
-    def visualize_multi_run_comparison(self,
-                                      run_results: Dict[str, List[Dict[str, Any]]],
-                                      metric: str = 'test_acc',
-                                      save_path: Optional[str] = None,
-                                      show: bool = True) -> None:
-        """
-        Create box/violin plots comparing final metrics across multiple runs.
-        
-        This visualization helps assess optimizer robustness across different seeds.
-        
-        Args:
-            run_results: Dictionary mapping optimizer names to lists of run results
-            metric: Metric to compare ('test_acc', 'test_loss', etc.)
-            save_path: Path to save the visualization
-            show: Whether to display the plot
-        """
-        # Extract final metric values for each optimizer
-        optimizer_names = []
-        final_metrics = []
-        
-        for optimizer, runs in run_results.items():
-            optimizer_names.append(optimizer)
-            metrics_for_optimizer = []
-            
-            for run in runs:
-                if metric in run and len(run[metric]) > 0:
-                    # Get the final metric value
-                    metrics_for_optimizer.append(run[metric][-1])
-            
-            final_metrics.append(metrics_for_optimizer)
-        
-        plt.figure(figsize=(10, 6))
-        
-        # Create violin plots
-        violin_parts = plt.violinplot(final_metrics, showmeans=True)
-        
-        # Customize violin plots
-        for i, pc in enumerate(violin_parts['bodies']):
-            pc.set_facecolor(f'C{i}')
-            pc.set_alpha(0.7)
-        
-        plt.xticks(range(1, len(optimizer_names) + 1), optimizer_names)
-        plt.ylabel(f'{metric.replace("_", " ").title()}')
-        plt.title(f'Distribution of Final {metric.replace("_", " ").title()} Across Multiple Runs')
-        plt.grid(True, axis='y')
-        
-        if save_path:
-            plt.savefig(save_path)
-        
-        if show:
-            plt.show()
-        else:
-            plt.close()
-    
-    def visualize_time_to_threshold(self,
-                                   run_results: Dict[str, List[Dict[str, Any]]],
-                                   metric: str = 'test_acc',
-                                   threshold: float = 90.0,
-                                   save_path: Optional[str] = None,
-                                   show: bool = True) -> None:
-        """
-        Create box/violin plots comparing time to reach performance threshold.
-        
-        This visualization helps assess convergence speed reliability across runs.
-        
-        Args:
-            run_results: Dictionary mapping optimizer names to lists of run results
-            metric: Metric to use for threshold ('test_acc', 'test_loss', etc.)
-            threshold: Performance threshold to measure time to
-            save_path: Path to save the visualization
-            show: Whether to display the plot
-        """
-        # For loss metrics, we want to find when it goes below the threshold
-        # For accuracy metrics, we want to find when it goes above the threshold
-        is_loss_metric = 'loss' in metric.lower()
-        
-        # Extract time to threshold for each optimizer
-        optimizer_names = []
-        time_to_threshold = []
-        
-        for optimizer, runs in run_results.items():
-            optimizer_names.append(optimizer)
-            times_for_optimizer = []
-            
-            for run in runs:
-                if metric in run and 'wall_time' in run:
-                    # Find the first step where the metric crosses the threshold
-                    for i, value in enumerate(run[metric]):
-                        if (is_loss_metric and value <= threshold) or \
-                           (not is_loss_metric and value >= threshold):
-                            times_for_optimizer.append(run['wall_time'][i])
-                            break
-            
-            time_to_threshold.append(times_for_optimizer)
-        
-        plt.figure(figsize=(10, 6))
-        
-        # Create violin plots
-        violin_parts = plt.violinplot(time_to_threshold, showmeans=True)
-        
-        # Customize violin plots
-        for i, pc in enumerate(violin_parts['bodies']):
-            pc.set_facecolor(f'C{i}')
-            pc.set_alpha(0.7)
-        
-        plt.xticks(range(1, len(optimizer_names) + 1), optimizer_names)
-        plt.ylabel('Time to Threshold (seconds)')
-        plt.title(f'Distribution of Time to Reach {metric.replace("_", " ").title()} ' +
-                 f'{"Below" if is_loss_metric else "Above"} {threshold}')
-        plt.grid(True, axis='y')
-        
-        if save_path:
-            plt.savefig(save_path)
-        
-        if show:
-            plt.show()
-        else:
-            plt.close()
-    
-    def add_multi_run_data(self, 
-                          run_results: Dict[str, List[Dict[str, Any]]]) -> None:
-        """
-        Add results from multiple runs for cross-seed comparison visualizations.
-        
-        Args:
-            run_results: Dictionary mapping optimizer names to lists of run results
-        """
-        self.multi_run_data = run_results
+        except ImportError:
+            print("Jinja2 not installed. HTML report generation skipped.")
+            print("Install jinja2 for HTML report generation: pip install jinja2")
