@@ -7,12 +7,28 @@ import argparse
 import torch
 import logging
 from datetime import datetime
+import sys
+import importlib.util
 
-from datasets import get_dataset
-from architectures import get_architecture
-from hyperparameter_tuning import TaltTuner
-from visualization import create_training_report
-from experiments import Experiment
+# Ensure the project root is in the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Import project modules using relative or absolute imports as needed
+try:
+    from talt_evaluation.datasets import get_dataset
+    from talt_evaluation.architectures import get_architecture
+    from talt_evaluation.hyperparameter_tuning import TaltTuner
+    from talt_evaluation.visualization import create_training_report
+    from talt_evaluation.experiments import Experiment
+except ImportError:
+    # If the import fails, try direct imports (for when running from project root)
+    from datasets import get_dataset
+    from architectures import get_architecture
+    from hyperparameter_tuning import TaltTuner
+    from visualization import create_training_report
+    from experiments import Experiment
 
 # Configure logging
 logging.basicConfig(
