@@ -35,7 +35,7 @@ usage() {
 # Function to build Docker image
 build_image() {
     echo -e "${YELLOW}Building TALT Docker image...${NC}"
-    docker build -t talt:latest .
+    docker build -f docker/Dockerfile -t talt:latest .
     echo -e "${GREEN}Build completed!${NC}"
 }
 
