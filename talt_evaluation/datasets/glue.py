@@ -86,13 +86,14 @@ def get_glue_dataset(task_name, batch_size=32, num_workers=4):
     val_dataset = GlueDataset(val_encodings, val_labels)
     test_dataset = GlueDataset(test_encodings, test_labels)
     
-    # Create data loaders
+    # Create data loaders with persistent workers
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     val_loader = DataLoader(
@@ -100,7 +101,8 @@ def get_glue_dataset(task_name, batch_size=32, num_workers=4):
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     test_loader = DataLoader(
@@ -108,7 +110,8 @@ def get_glue_dataset(task_name, batch_size=32, num_workers=4):
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     return train_loader, val_loader, test_loader

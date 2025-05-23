@@ -30,6 +30,8 @@ def parse_args():
                         help='Run experiments in parallel if multiple GPUs are specified')
     parser.add_argument('--max-parallel', type=int, default=None, 
                         help='Maximum number of parallel experiments')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable debug mode for verbose error reporting')
     
     return parser.parse_args()
 

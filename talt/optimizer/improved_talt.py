@@ -340,22 +340,29 @@ class ImprovedTALTOptimizer:
             except Exception as e:
                 logger.warning(f"Unexpected error updating topology for {name}: {e}")
 
-    def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor]], 
+    def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor], Tuple, List], 
              y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
         """
         Perform an optimization step with gradient clipping and NaN detection.
         
         Args:
             loss_fn: Loss function that takes (predictions, targets) and returns loss
-            x: Input data - either a tensor (CNN) or dict (BERT/transformers)
-            y: Target data - if None, extracted from x['labels'] for dict inputs
+            x: Input data - tensor (CNN), dict (BERT/transformers), or tuple/list of (input, target)
+            y: Target data - if None, extracted from x['labels'] for dict inputs or x[1] for tuple inputs
             
         Returns:
             Tuple of (loss_value, model_output)
         """
-        # Validate batch structure
-        if not isinstance(x, (torch.Tensor, dict)):
-            raise TypeError(f"Unsupported batch type: {type(x)}. Expected tensor or dict.")
+        # Validate batch structure and handle tuple/list inputs
+        if isinstance(x, (tuple, list)):
+            # Handle tuple/list format: (input, target)
+            if len(x) >= 2:
+                input_data, y = x[0], x[1]
+                x = input_data
+            else:
+                raise ValueError(f"Tuple/list input must have at least 2 elements, got {len(x)}")
+        elif not isinstance(x, (torch.Tensor, dict)):
+            raise TypeError(f"Unsupported batch type: {type(x)}. Expected tensor, dict, tuple, or list.")
         
         # Initialize timings
         timings = {}

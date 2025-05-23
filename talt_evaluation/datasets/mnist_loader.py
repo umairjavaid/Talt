@@ -34,13 +34,14 @@ def get_mnist(batch_size: int = 64, num_workers: int = 4, data_dir: str = "./dat
     # Load test dataset
     testset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform)
 
-    # Create data loaders
+    # Create data loaders with persistent workers for better performance
     train_loader = DataLoader(
         trainset, 
         batch_size=batch_size, 
         shuffle=True, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     val_loader = DataLoader(
@@ -48,7 +49,8 @@ def get_mnist(batch_size: int = 64, num_workers: int = 4, data_dir: str = "./dat
         batch_size=batch_size, 
         shuffle=False, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     test_loader = DataLoader(
@@ -56,7 +58,8 @@ def get_mnist(batch_size: int = 64, num_workers: int = 4, data_dir: str = "./dat
         batch_size=batch_size, 
         shuffle=False, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True if num_workers > 0 else False
     )
 
     return train_loader, val_loader, test_loader

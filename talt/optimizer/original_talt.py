@@ -295,9 +295,9 @@ class TALTOptimizer:
             y = y.to(self.device)
             
             return self.step(loss_fn, input_ids, y)
-        elif isinstance(batch, (tuple, list)) and len(batch) == 2:
+        elif isinstance(batch, (tuple, list)) and len(batch) >= 2:
             # Handle standard tensor inputs - both tuple and list formats
-            x, targets = batch
+            x, targets = batch[0], batch[1]  # Extract first two elements
             x = x.to(self.device) if hasattr(x, 'to') else x
             targets = targets.to(self.device) if hasattr(targets, 'to') else targets
             return self.step(loss_fn, x, targets)
