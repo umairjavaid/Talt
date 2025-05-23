@@ -57,8 +57,8 @@ def create_training_report(results_or_experiment, output_path=None):
                 "timestamp": datetime.now().isoformat(),
                 "results": results,
                 "summary": {
-                    "accuracy": results.get("test_accuracy", results.get("test_acc", 0)),
-                    "loss": results.get("test_loss", 0),
+                    "test_accuracy": results.get("test_accuracy", results.get("test_acc", 0)),
+                    "test_loss": results.get("test_loss", 0),
                     "epochs": len(results.get("train_losses", results.get("train_loss", []))),
                 }
             }

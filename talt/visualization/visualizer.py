@@ -3,7 +3,8 @@ from typing import Dict, List, Any, Optional
 from collections import deque
 import os
 import logging
-# Attempt to import plotting libraries, and provide a fallback or warning if not available.
+
+# Import plotting libraries with proper error handling
 try:
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -11,47 +12,9 @@ try:
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
-    # Mock objects or functions if needed for the class to be defined without errors
-    class plt_mock:
-        @staticmethod
-        def figure(*args, **kwargs): pass
-        @staticmethod
-        def plot(*args, **kwargs): pass
-        @staticmethod
-        def axvline(*args, **kwargs): pass
-        @staticmethod
-        def scatter(*args, **kwargs): pass
-        @staticmethod
-        def title(*args, **kwargs): pass
-        @staticmethod
-        def xlabel(*args, **kwargs): pass
-        @staticmethod
-        def ylabel(*args, **kwargs): pass
-        @staticmethod
-        def legend(*args, **kwargs): pass
-        @staticmethod
-        def grid(*args, **kwargs): pass
-        @staticmethod
-        def savefig(*args, **kwargs): pass
-        @staticmethod
-        def show(*args, **kwargs): pass
-        @staticmethod
-        def close(*args, **kwargs): pass
-        @staticmethod
-        def subplots(*args, **kwargs): return (None, [plt_mock()] * 4) # return a mock figure and axes
-        @staticmethod
-        def tight_layout(*args, **kwargs): pass
-        @staticmethod
-        def rcParams(*args, **kwargs): return type('MockDict', (dict,), {'update': lambda s, d: None})()
-
-
-    class sns_mock:
-        @staticmethod
-        def set_style(*args, **kwargs): pass
-
-    plt = plt_mock
-    sns = sns_mock
-    FuncAnimation = None # Will be checked before use
+    plt = None
+    sns = None
+    FuncAnimation = None
 
 import numpy as np
 

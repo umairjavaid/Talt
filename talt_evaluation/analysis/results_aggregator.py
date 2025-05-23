@@ -100,7 +100,7 @@ class ResultsAggregator:
             optimizer_stats = df.groupby('optimizer')[numeric_cols].agg(['mean', 'std', 'count'])
             summary['optimizer_stats'] = optimizer_stats.to_dict()
             
-            # Statistical significance tests
+            # Statistical significance tests between optimizers
             optimizers = df['optimizer'].unique()
             if len(optimizers) > 1 and 'test_acc' in df.columns:
                 significance_tests = {}

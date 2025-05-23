@@ -24,7 +24,7 @@ def get_dataset(dataset_name, **kwargs):
         **kwargs: Additional arguments to pass to the dataset loader
     
     Returns:
-        train_loader, val_loader, test_loader
+        tuple: (train_loader, val_loader, test_loader)
     """
     if dataset_name.lower() == "cifar10":
         return get_cifar10_dataset(**kwargs)
