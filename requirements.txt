@@ -1,7 +1,5 @@
 # Core dependencies for TALT framework
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
+# Note: torch, torchvision, torchaudio are provided by NVIDIA base image
 
 # Transformers and NLP
 transformers>=4.21.0

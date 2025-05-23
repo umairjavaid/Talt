@@ -21,81 +21,36 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install core ML and scientific computing dependencies
-# Note: PyTorch is already installed in the base image
-RUN pip install \
-    transformers>=4.21.0 \
-    datasets>=2.0.0 \
-    huggingface-hub>=0.10.0 \
-    optuna>=3.0.0 \
-    matplotlib>=3.5.0 \
-    seaborn>=0.11.0 \
-    pandas>=1.4.0 \
-    numpy>=1.21.0 \
-    scikit-learn>=1.1.0 \
-    scipy>=1.8.0 \
-    tqdm>=4.64.0 \
-    pillow>=9.0.0 \
-    opencv-python>=4.5.0 \
-    plotly>=5.0.0 \
-    kaleido>=0.2.1
-
-# Install Jupyter and notebook dependencies
-RUN pip install \
-    jupyter>=1.0.0 \
-    jupyterlab>=3.4.0 \
-    notebook>=6.4.0 \
-    ipywidgets>=7.7.0 \
-    nbconvert>=6.5.0
-
-# Install additional utilities
-RUN pip install \
-    psutil>=5.9.0 \
-    gpustat>=1.0.0 \
-    tensorboard>=2.9.0 \
-    wandb>=0.13.0
-
-# Create non-root user for security
-RUN useradd -m -u 1000 talt && \
-    mkdir -p /home/talt && \
-    chown -R talt:talt /home/talt
-
 # Set working directory
 WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt* ./
 
-# Install any additional requirements if they exist
+# Install requirements (PyTorch packages are already in base image)
 RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
 # Copy TALT source code
-COPY --chown=talt:talt . .
+COPY . .
 
 # Install TALT package in editable mode
 RUN pip install -e .
 
 # Create directories for data, results, and configs
-RUN mkdir -p /app/data /app/results /app/logs /app/checkpoints && \
-    chown -R talt:talt /app
+RUN mkdir -p /app/data /app/results /app/logs /app/checkpoints
 
 # Create Jupyter config directory
-RUN mkdir -p /home/talt/.jupyter && \
-    chown -R talt:talt /home/talt/.jupyter
+RUN mkdir -p /root/.jupyter
 
 # Generate Jupyter configuration
 RUN jupyter notebook --generate-config && \
-    echo "c.NotebookApp.ip = '0.0.0.0'" >> /home/talt/.jupyter/jupyter_notebook_config.py && \
-    echo "c.NotebookApp.open_browser = False" >> /home/talt/.jupyter/jupyter_notebook_config.py && \
-    echo "c.NotebookApp.allow_root = True" >> /home/talt/.jupyter/jupyter_notebook_config.py && \
-    echo "c.NotebookApp.port = 8888" >> /home/talt/.jupyter/jupyter_notebook_config.py && \
-    chown -R talt:talt /home/talt/.jupyter
-
-# Switch to non-root user
-USER talt
+    echo "c.NotebookApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.open_browser = False" >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.allow_root = True" >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.port = 8888" >> /root/.jupyter/jupyter_notebook_config.py
 
 # Set Python path
-ENV PYTHONPATH=/app:$PYTHONPATH
+ENV PYTHONPATH=/app
 
 # Health check to verify installation
 HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
