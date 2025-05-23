@@ -56,7 +56,10 @@ class ImprovedTALTOptimizer:
         adaptive_reg: bool = True,
         device: Union[str, torch.device] = "cuda",
         max_stored_steps: int = 1000,
-        max_visualization_points: int = 100
+        max_visualization_points: int = 100,
+        grad_clip_norm: Optional[float] = 1.0,  # NEW
+        grad_clip_value: Optional[float] = None,  # NEW
+        detect_anomaly: bool = False  # NEW
     ):
         """
         Initialize the improved TALT optimizer.
@@ -139,7 +142,7 @@ class ImprovedTALTOptimizer:
 
     def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
         """
-        Transform gradient using learned topology information.
+        Transform gradient using learned topology information with thread safety.
 
         Args:
             grad: Original gradient
@@ -153,47 +156,51 @@ class ImprovedTALTOptimizer:
 
         # Make a copy of original gradient
         orig_grad = grad.clone()
-        flat_grad = grad.view(-1)
 
-        # Get parameter data
-        param_info = self.param_data[name]
-        transformation = param_info['transformation']
+        # Check if update is in progress for this parameter
+        with self._state_lock:
+            if name in self._pending_updates:
+                # Skip transformation during update
+                return grad
 
-        # If no transformation available, just return original
+            # Get parameter data safely
+            param_info = self.param_data[name]
+            transformation = param_info.get('transformation')
+
+        # If no transformation available, return original
         if transformation is None:
             return grad
 
         try:
-            # Update valley detector with current gradient
-            param_info['valley_detector'].update(flat_grad.detach().cpu())
+            # Apply transformation outside of lock to avoid blocking
+            flat_grad = grad.view(-1)
 
-            # Store gradient norm
-            grad_norm = torch.norm(flat_grad).item()
-            param_info['gradient_norm_history'].append(grad_norm)
+            # Ensure transformation is on correct device
+            if transformation.device != flat_grad.device:
+                transformation = transformation.to(flat_grad.device)
 
-            # Apply learned transformation
+            # Update valley detector (thread-safe)
+            with self._state_lock:
+                param_info['valley_detector'].update(flat_grad.detach().cpu())
+
+                # Store gradient norm
+                grad_norm = torch.norm(flat_grad).item()
+                param_info['gradient_norm_history'].append(grad_norm)
+
+            # Check for valleys
             is_valley, valley_dir = param_info['valley_detector'].detect_valley()
 
             if is_valley and valley_dir is not None:
-                # Record bifurcation point
-                if len(self.bifurcations) < self.max_stored_steps:
-                    self.bifurcations.append(self.steps)
+                # Thread-safe bifurcation recording
+                with self._state_lock:
+                    if len(self.bifurcations) < self.max_stored_steps:
+                        self.bifurcations.append(self.steps)
 
-                # Store detection for visualization
-                self._visualization_data['valley_detections'].append(
-                    (self.steps, name, 'valley')
-                )
+                    self._visualization_data['valley_detections'].append(
+                        (self.steps, name, 'valley')
+                    )
 
-                # Project valley direction to original space if needed
-                if valley_dir.shape[0] != flat_grad.shape[0]:
-                    # This would happen if we're using dimension reduction
-                    # We need an approximate mapping back to original space
-                    # For now, we just rely on the transformation matrix
-                    pass
-
-                # Transform the gradient
-                # First, compute the component in valley direction
-                # Ensure valley_dir is on the same device as flat_grad for consistent operations
+                # Apply valley transformation
                 valley_dir = valley_dir.to(flat_grad.device)
                 valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
                 flat_grad = flat_grad + self.valley_strength * valley_component
@@ -201,19 +208,18 @@ class ImprovedTALTOptimizer:
             # Apply curvature-based transformation
             transformed_grad = torch.matmul(transformation, flat_grad.unsqueeze(1)).squeeze(1)
 
-            # Check if transformation is reasonable
+            # Safety checks
             cos_sim = nn.functional.cosine_similarity(
                 transformed_grad.view(-1), orig_grad.view(-1), dim=0
             )
 
-            # If very different from original, blend back
             if cos_sim < 0.6:
                 blend_factor = 0.6 - cos_sim
                 transformed_grad = (1.0 - blend_factor) * transformed_grad.view_as(orig_grad) + blend_factor * orig_grad
             else:
                 transformed_grad = transformed_grad.view_as(orig_grad)
 
-            # Safety check for NaN or Inf
+            # NaN/Inf check
             if torch.isnan(transformed_grad).any() or torch.isinf(transformed_grad).any():
                 logger.warning(f"NaN or Inf in transformed gradient for {name}")
                 return orig_grad
@@ -288,140 +294,517 @@ class ImprovedTALTOptimizer:
                 logger.warning(f"Error updating topology for {name}: {e}")
 
     def _update_topology_async(self) -> None:
-        """Update topology asynchronously."""
-        # Clean up completed futures to prevent memory leaks
-        if self._topology_update_future:
-            if self._topology_update_future.done():
+        """Update topology asynchronously with proper thread safety."""
+        with self._state_lock:
+            # Check if update is already in progress
+            if self._update_in_progress:
+                return
+
+            # Check if previous future is done
+            if hasattr(self, '_topology_update_future') and self._topology_update_future:
+                if not self._topology_update_future.done():
+                    return  # Previous update still running
+
+                # Get result to check for exceptions
                 try:
-                    # Get result and handle any exceptions
-                    self._topology_update_future.result()
+                    self._topology_update_future.result(timeout=0)
                 except Exception as e:
-                    logger.warning(f"Topology update failed: {e}")
-            elif not self._topology_update_future.cancelled():
-                return  # Still running, don't start a new one
-                
-        # Start new topology update
-        self._topology_update_future = self.executor.submit(self._update_topology)
+                    logger.error(f"Previous topology update failed: {e}")
 
-    def step(self, loss_fn: Callable, x: torch.Tensor, y: torch.Tensor) -> Tuple[float, torch.Tensor]:
+            # Mark update as in progress
+            self._update_in_progress = True
+
+            # Mark all parameters as pending update
+            self._pending_updates = set(self.param_data.keys())
+
+        # Submit update task
+        def update_with_cleanup():
+            try:
+                self._update_topology()
+            finally:
+                with self._state_lock:
+                    self._pending_updates.clear()
+                    self._update_in_progress = False
+
+        self._topology_update_future = self.executor.submit(update_with_cleanup)
+
+    def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor]], 
+             y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
         """
-        Perform an optimization step.
-
+        Perform an optimization step with gradient clipping and NaN detection.
+        
         Args:
-            loss_fn: Loss function
-            x: Input data
-            y: Target data
-
+            loss_fn: Loss function that takes (predictions, targets) and returns loss
+            x: Input data - either a tensor (CNN) or dict (BERT/transformers)
+            y: Target data - if None, extracted from x['labels'] for dict inputs
+            
         Returns:
-            Tuple of (loss value, model output)
+            Tuple of (loss_value, model_output)
         """
         # Initialize timings
         timings = {}
         batch_start = time.time()
-
+        
         self.optimizer.zero_grad()
         self.model.train()
-
-        # Forward pass
-        forward_start = time.time()
-        with autocast('cuda'):
-            out = self.model(x)
-            loss = loss_fn(out, y)
-        forward_time = time.time() - forward_start
-        timings['forward_pass'] = forward_time
-
+        
+        # Handle different input types
+        if isinstance(x, dict):
+            # Transformer model with dictionary inputs
+            # Extract labels if y not provided
+            if y is None:
+                y = x.get('labels')
+                if y is None:
+                    raise ValueError("Dictionary input must contain 'labels' key or y must be provided")
+            
+            # Separate model inputs from labels
+            model_inputs = {k: v.to(self.device) for k, v in x.items() if k != 'labels'}
+            y = y.to(self.device)
+            
+            # Forward pass
+            forward_start = time.time()
+            with autocast('cuda'):
+                out = self.model(**model_inputs)
+                
+                # Handle different output formats
+                if hasattr(out, 'logits'):  # transformers ModelOutput
+                    logits = out.logits
+                elif isinstance(out, dict) and 'logits' in out:
+                    logits = out['logits']
+                else:
+                    logits = out
+                
+                loss = loss_fn(logits, y)
+            forward_time = time.time() - forward_start
+            timings['forward_pass'] = forward_time
+            
+            # For compatibility, return logits as output
+            out = logits
+        else:
+            # Standard tensor inputs (CNN models)
+            if y is None:
+                raise ValueError("Target tensor y must be provided for tensor inputs")
+            
+            x = x.to(self.device)
+            y = y.to(self.device)
+            
+            # Forward pass
+            forward_start = time.time()
+            with autocast('cuda'):
+                out = self.model(x)
+                loss = loss_fn(out, y)
+            forward_time = time.time() - forward_start
+            timings['forward_pass'] = forward_time
+        
+        # Check for NaN/Inf loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            self.anomaly_count += 1
+            logger.warning(f"NaN/Inf loss detected (count: {self.anomaly_count})")
+            
+            if self.anomaly_count > self.max_anomalies:
+                raise RuntimeError(f"Too many anomalies ({self.anomaly_count}), stopping training")
+            
+            # Skip this batch
+            self.optimizer.zero_grad()
+            
+            # Return previous loss value if available
+            if self.loss_history:
+                return self.loss_history[-1], out.detach()
+            else:
+                return 0.0, out.detach()
+        
         # Backward pass
         backward_start = time.time()
-        self.scaler.scale(loss).backward()
+        
+        # Enable anomaly detection if requested
+        with torch.autograd.set_detect_anomaly(self.detect_anomaly):
+            self.scaler.scale(loss).backward()
+        
+        # Gradient clipping
+        if self.grad_clip_norm is not None or self.grad_clip_value is not None:
+            self.scaler.unscale_(self.optimizer)
+            
+            # Clip by norm
+            if self.grad_clip_norm is not None:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), 
+                    self.grad_clip_norm
+                )
+                
+                # Log if clipping occurred
+                if grad_norm > self.grad_clip_norm:
+                    logger.debug(f"Gradient norm clipped: {grad_norm:.4f} -> {self.grad_clip_norm}")
+            
+            # Clip by value
+            if self.grad_clip_value is not None:
+                torch.nn.utils.clip_grad_value_(
+                    self.model.parameters(),
+                    self.grad_clip_value
+                )
+        
         backward_time = time.time() - backward_start
         timings['backward_pass'] = backward_time
-
+        
         # Store and analyze gradients periodically
         grad_start = time.time()
         if self.steps % self.store_interval == 0:
             for name, p in self.model.named_parameters():
                 if p.grad is not None and name in self.param_data:
                     flat_grad = p.grad.detach().view(-1)
-
+                    
                     # Update covariance with projected gradient
                     projected_grad = self.param_data[name]['projector'].project(flat_grad)
                     self.param_data[name]['covariance'].update(projected_grad)
         grad_time = time.time() - grad_start
         timings['gradient_processing'] = grad_time
-
+        
         # Update parameters
         optim_start = time.time()
         self.scaler.step(self.optimizer)
         self.scaler.update()
         optim_time = time.time() - optim_start
         timings['optimizer_step'] = optim_time
-
+        
         # Track progress
         self.steps += 1
         loss_value = loss.item()
         self.loss_history.append(loss_value)
         self._visualization_data['loss_values'].append(loss_value)
-
+        
         # Print progress
         if self.steps % 10 == 0 or self.steps == 1:
-            # Current memory usage
-            if torch.cuda.is_available():
-                mem_allocated = torch.cuda.memory_allocated() / (1024 * 1024)  # MB
-                mem_reserved = torch.cuda.memory_reserved() / (1024 * 1024)  # MB
-                mem_str = f"GPU: {mem_allocated:.1f}MB / {mem_reserved:.1f}MB"
-            else:
-                process = psutil.Process(os.getpid())
-                mem_usage = process.memory_info().rss / (1024 * 1024)  # MB
-                mem_str = f"RAM: {mem_usage:.1f}MB"
-
-            print(f"Step {self.steps:4d} | Loss: {loss_value:.6f} | {mem_str} | "
-                  f"F: {forward_time:.4f}s, B: {backward_time:.4f}s, O: {optim_time:.4f}s")
-
+            self._print_progress(loss_value, timings)
+        
         # Update topology information periodically
-        topo_time = 0
         if self.steps % self.update_interval == 0:
-            topo_start = time.time()
             self._update_topology_async()
-            topo_time = time.time() - topo_start
-            timings['topology_update'] = topo_time
-
-            # Log topology update
-            print(f"🔄 Topology update at step {self.steps} took {topo_time:.4f}s")
-
+        
         # Periodic cleanup
         if self.steps % 100 == 0:
-            cleanup_start = time.time()
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            cleanup_time = time.time() - cleanup_start
-
-            print(f"🧹 Memory cleanup at step {self.steps} took {cleanup_time:.4f}s")
-
-        # Total batch time
-        batch_time = time.time() - batch_start
-        timings['batch_total'] = batch_time
-
+            self._cleanup_memory()
+        
         return loss_value, out
 
-    def zero_grad(self, set_to_none: bool = False):
-        """Zero gradients of the base optimizer for PyTorch compatibility.
+    def _print_progress(self, loss_value: float, timings: Dict[str, float]) -> None:
+        """Print training progress with memory and timing information."""
+        # Current memory usage
+        if torch.cuda.is_available():
+            mem_allocated = torch.cuda.memory_allocated() / (1024 * 1024)  # MB
+            mem_reserved = torch.cuda.memory_reserved() / (1024 * 1024)  # MB
+            mem_str = f"GPU: {mem_allocated:.1f}MB / {mem_reserved:.1f}MB"
+        else:
+            process = psutil.Process(os.getpid())
+            mem_usage = process.memory_info().rss / (1024 * 1024)  # MB
+            mem_str = f"RAM: {mem_usage:.1f}MB"
+
+        forward_time = timings.get('forward_pass', 0)
+        backward_time = timings.get('backward_pass', 0)
+        optim_time = timings.get('optimizer_step', 0)
+
+        print(f"Step {self.steps:4d} | Loss: {loss_value:.6f} | {mem_str} | "
+              f"F: {forward_time:.4f}s, B: {backward_time:.4f}s, O: {optim_time:.4f}s")
+
+    def _cleanup_memory(self) -> None:
+        """Comprehensive memory cleanup to prevent memory leaks."""
+        cleanup_start = time.time()
+        
+        # Cleanup visualization data
+        self._cleanup_visualization_data()
+        
+        # Cleanup old gradient history
+        for name, param_info in self.param_data.items():
+            if 'gradient_norm_history' in param_info:
+                # Keep only recent history
+                max_history = self.max_stored_steps // 10
+                while len(param_info['gradient_norm_history']) > max_history:
+                    param_info['gradient_norm_history'].popleft()
+            
+            if 'consistency_history' in param_info:
+                max_history = self.max_stored_steps // 10
+                while len(param_info['consistency_history']) > max_history:
+                    param_info['consistency_history'].popleft()
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Clear GPU cache if available
+        if torch.cuda.is_available() and self.device.type == 'cuda':
+            torch.cuda.empty_cache()
+        
+        cleanup_time = time.time() - cleanup_start
+        
+        # Log memory stats
+        memory_stats = self._get_memory_stats()
+        logger.debug(f"Memory cleanup took {cleanup_time:.4f}s. "
+                    f"Current usage - RAM: {memory_stats['ram_mb']:.1f}MB, "
+                    f"GPU: {memory_stats['gpu_mb']:.1f}MB")
+
+    def _cleanup_visualization_data(self) -> None:
+        """
+        Prevent memory bloat by limiting visualization data with smart sampling.
+        """
+        # Smart sampling for loss values - keep more recent values
+        if len(self._visualization_data['loss_values']) > self.max_visualization_points:
+            loss_list = list(self._visualization_data['loss_values'])
+            total_points = len(loss_list)
+            keep_points = self.max_visualization_points // 2
+            
+            # Keep first 10%, last 50%, and sample the middle
+            first_10_percent = int(total_points * 0.1)
+            last_50_percent = int(total_points * 0.5)
+            
+            # Sample indices
+            first_indices = list(range(0, first_10_percent))
+            middle_indices = list(range(first_10_percent, total_points - last_50_percent, 
+                                      (total_points - last_50_percent - first_10_percent) // (keep_points // 4)))
+            last_indices = list(range(total_points - last_50_percent, total_points))
+            
+            keep_indices = sorted(set(first_indices + middle_indices + last_indices))
+            sampled_losses = [loss_list[i] for i in keep_indices]
+            
+            self._visualization_data['loss_values'] = deque(sampled_losses, maxlen=self.max_visualization_points)
+        
+        # Limit valley detections
+        if len(self._visualization_data['valley_detections']) > self.max_visualization_points // 10:
+            # Keep only recent detections
+            recent_detections = list(self._visualization_data['valley_detections'])[-self.max_visualization_points // 20:]
+            self._visualization_data['valley_detections'] = recent_detections
+        
+        # Limit gradient stats per parameter
+        for param_name, stats in list(self._visualization_data['gradient_stats'].items()):
+            if isinstance(stats, deque) and len(stats) > self.max_visualization_points // 20:
+                # Keep only recent stats
+                recent_stats = list(stats)[-self.max_visualization_points // 40:]
+                self._visualization_data['gradient_stats'][param_name] = deque(
+                    recent_stats, maxlen=self.max_visualization_points // 20
+                )
+
+    def _get_memory_stats(self) -> Dict[str, float]:
+        """
+        Get memory statistics with comprehensive error handling.
+        
+        Returns:
+            Dictionary with memory statistics in MB
+        """
+        stats = {
+            'ram_mb': 0.0,
+            'gpu_mb': 0.0,
+            'gpu_reserved_mb': 0.0,
+            'gpu_max_mb': 0.0
+        }
+        
+        # RAM usage
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            stats['ram_mb'] = process.memory_info().rss / (1024 * 1024)
+        except Exception as e:
+            logger.debug(f"Could not get RAM stats: {e}")
+        
+        # GPU memory
+        if torch.cuda.is_available() and self.device.type == 'cuda':
+            try:
+                device_idx = self.device.index if self.device.index is not None else 0
+                stats['gpu_mb'] = torch.cuda.memory_allocated(device_idx) / (1024 * 1024)
+                stats['gpu_reserved_mb'] = torch.cuda.memory_reserved(device_idx) / (1024 * 1024)
+                stats['gpu_max_mb'] = torch.cuda.max_memory_allocated(device_idx) / (1024 * 1024)
+            except Exception as e:
+                logger.debug(f"Could not get GPU stats: {e}")
+        
+        return stats
+
+    def _update_topology_async(self) -> None:
+        """Update topology asynchronously with proper thread safety."""
+        with self._state_lock:
+            # Check if update is already in progress
+            if self._update_in_progress:
+                return
+            
+            # Check if previous future is done
+            if hasattr(self, '_topology_update_future') and self._topology_update_future:
+                if not self._topology_update_future.done():
+                    return  # Previous update still running
+                
+                # Get result to check for exceptions
+                try:
+                    self._topology_update_future.result(timeout=0)
+                except Exception as e:
+                    logger.error(f"Previous topology update failed: {e}")
+            
+            # Mark update as in progress
+            self._update_in_progress = True
+            
+            # Mark all parameters as pending update
+            self._pending_updates = set(self.param_data.keys())
+        
+        # Submit update task
+        def update_with_cleanup():
+            try:
+                self._update_topology()
+            finally:
+                with self._state_lock:
+                    self._pending_updates.clear()
+                    self._update_in_progress = False
+        
+        self._topology_update_future = self.executor.submit(update_with_cleanup)
+
+    def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor]], 
+             y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
+        """
+        Perform an optimization step with gradient clipping and NaN detection.
         
         Args:
-            set_to_none: Whether to set gradients to None instead of zero
+            loss_fn: Loss function that takes (predictions, targets) and returns loss
+            x: Input data - either a tensor (CNN) or dict (BERT/transformers)
+            y: Target data - if None, extracted from x['labels'] for dict inputs
+            
+        Returns:
+            Tuple of (loss_value, model_output)
         """
-        self.optimizer.zero_grad(set_to_none=set_to_none)
+        # Initialize timings
+        timings = {}
+        batch_start = time.time()
+        
+        self.optimizer.zero_grad()
+        self.model.train()
+        
+        # Handle different input types
+        if isinstance(x, dict):
+            # Transformer model with dictionary inputs
+            # Extract labels if y not provided
+            if y is None:
+                y = x.get('labels')
+                if y is None:
+                    raise ValueError("Dictionary input must contain 'labels' key or y must be provided")
+            
+            # Separate model inputs from labels
+            model_inputs = {k: v.to(self.device) for k, v in x.items() if k != 'labels'}
+            y = y.to(self.device)
+            
+            # Forward pass
+            forward_start = time.time()
+            with autocast('cuda'):
+                out = self.model(**model_inputs)
+                
+                # Handle different output formats
+                if hasattr(out, 'logits'):  # transformers ModelOutput
+                    logits = out.logits
+                elif isinstance(out, dict) and 'logits' in out:
+                    logits = out['logits']
+                else:
+                    logits = out
+                
+                loss = loss_fn(logits, y)
+            forward_time = time.time() - forward_start
+            timings['forward_pass'] = forward_time
+            
+            # For compatibility, return logits as output
+            out = logits
+        else:
+            # Standard tensor inputs (CNN models)
+            if y is None:
+                raise ValueError("Target tensor y must be provided for tensor inputs")
+            
+            x = x.to(self.device)
+            y = y.to(self.device)
+            
+            # Forward pass
+            forward_start = time.time()
+            with autocast('cuda'):
+                out = self.model(x)
+                loss = loss_fn(out, y)
+            forward_time = time.time() - forward_start
+            timings['forward_pass'] = forward_time
+        
+        # Check for NaN/Inf loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            self.anomaly_count += 1
+            logger.warning(f"NaN/Inf loss detected (count: {self.anomaly_count})")
+            
+            if self.anomaly_count > self.max_anomalies:
+                raise RuntimeError(f"Too many anomalies ({self.anomaly_count}), stopping training")
+            
+            # Skip this batch
+            self.optimizer.zero_grad()
+            
+            # Return previous loss value if available
+            if self.loss_history:
+                return self.loss_history[-1], out.detach()
+            else:
+                return 0.0, out.detach()
+        
+        # Backward pass
+        backward_start = time.time()
+        
+        # Enable anomaly detection if requested
+        with torch.autograd.set_detect_anomaly(self.detect_anomaly):
+            self.scaler.scale(loss).backward()
+        
+        # Gradient clipping
+        if self.grad_clip_norm is not None or self.grad_clip_value is not None:
+            self.scaler.unscale_(self.optimizer)
+            
+            # Clip by norm
+            if self.grad_clip_norm is not None:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), 
+                    self.grad_clip_norm
+                )
+                
+                # Log if clipping occurred
+                if grad_norm > self.grad_clip_norm:
+                    logger.debug(f"Gradient norm clipped: {grad_norm:.4f} -> {self.grad_clip_norm}")
+            
+            # Clip by value
+            if self.grad_clip_value is not None:
+                torch.nn.utils.clip_grad_value_(
+                    self.model.parameters(),
+                    self.grad_clip_value
+                )
+        
+        backward_time = time.time() - backward_start
+        timings['backward_pass'] = backward_time
+        
+        # Store and analyze gradients periodically
+        grad_start = time.time()
+        if self.steps % self.store_interval == 0:
+            for name, p in self.model.named_parameters():
+                if p.grad is not None and name in self.param_data:
+                    flat_grad = p.grad.detach().view(-1)
+                    
+                    # Update covariance with projected gradient
+                    projected_grad = self.param_data[name]['projector'].project(flat_grad)
+                    self.param_data[name]['covariance'].update(projected_grad)
+        grad_time = time.time() - grad_start
+        timings['gradient_processing'] = grad_time
+        
+        # Update parameters
+        optim_start = time.time()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        optim_time = time.time() - optim_start
+        timings['optimizer_step'] = optim_time
+        
+        # Track progress
+        self.steps += 1
+        loss_value = loss.item()
+        self.loss_history.append(loss_value)
+        self._visualization_data['loss_values'].append(loss_value)
+        
+        # Print progress
+        if self.steps % 10 == 0 or self.steps == 1:
+            self._print_progress(loss_value, timings)
+        
+        # Update topology information periodically
+        if self.steps % self.update_interval == 0:
+            self._update_topology_async()
+        
+        # Periodic cleanup
+        if self.steps % 100 == 0:
+            self._cleanup_memory()
+        
+        return loss_value, out
 
-    @property
-    def param_groups(self):
-        """Expose param_groups for scheduler compatibility."""
-        return self.optimizer.param_groups
-    
-    @param_groups.setter
-    def param_groups(self, value):
-        """Set param_groups for scheduler compatibility."""
-        self.optimizer.param_groups = value
-    
     def state_dict(self):
         """Return optimizer state dict for checkpoint saving."""
         # Return a dict containing both base optimizer state and TALT-specific state
@@ -440,11 +823,12 @@ class ImprovedTALTOptimizer:
     def shutdown(self) -> None:
         """Clean up resources."""
         # Cancel any pending tasks
-        if self._topology_update_future and not self._topology_update_future.done():
+        if hasattr(self, '_topology_update_future') and self._topology_update_future and not self._topology_update_future.done():
             self._topology_update_future.cancel()
 
         # Shut down executor
-        self.executor.shutdown(wait=False)
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
 
         # Clear memory
         self.param_data.clear()

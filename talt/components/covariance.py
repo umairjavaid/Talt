@@ -60,25 +60,35 @@ class IncrementalCovariance:
 
     def get_covariance(self, reg: float = 1e-6) -> torch.Tensor:
         """
-        Get current covariance estimate with regularization.
-
+        Get current covariance estimate with regularization and proper device handling.
+        
         Args:
-            reg: Regularization parameter
-
+            reg: Regularization parameter to ensure positive definiteness
+            
         Returns:
-            Covariance matrix with regularization
+            Regularized covariance matrix on the correct device
         """
-        # Get device of current cov matrix if it exists
+        # Determine the device from existing tensors
         device = self.cov.device if hasattr(self.cov, 'device') else 'cpu'
         
         if self.n_samples < 2:
-            # Not enough samples, return identity matrix
-            return torch.eye(self.dim, device=device) * reg  # Fixed: Match device with cov
-
-        # Add regularization
-        cov = self.cov + torch.eye(self.dim, device=device) * reg  # Fixed: Match device with cov
-
-        # Ensure symmetry
+            # Not enough samples, return regularized identity matrix
+            return torch.eye(self.dim, device=device) * reg
+        
+        # Add regularization with correct device
+        reg_matrix = torch.eye(self.dim, device=device) * reg
+        cov = self.cov + reg_matrix
+        
+        # Ensure symmetry (important for numerical stability)
         cov = 0.5 * (cov + cov.t())
-
+        
+        # Additional numerical stability check
+        try:
+            # Check if matrix is positive definite
+            torch.linalg.cholesky(cov)
+        except RuntimeError:
+            # If not positive definite, add more regularization
+            additional_reg = torch.eye(self.dim, device=device) * (reg * 10)
+            cov = cov + additional_reg
+        
         return cov

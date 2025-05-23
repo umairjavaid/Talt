@@ -1,49 +1,50 @@
 {
-  "description": "Comparison of TALT vs Adam for BERT model on GLUE SST-2 dataset",
+  "description": "Comparison of BERT fine-tuning with TALT vs standard optimizers",
   "experiments": [
     {
-      "name": "bert-base_sst2_talt",
+      "name": "bert_base_sst2_talt",
       "architecture": "bert-base",
       "dataset": "glue-sst2",
       "optimizer": "talt",
       "epochs": 5,
-      "batch-size": 32,
+      "batch-size": 16,
       "lr": 2e-5,
-      "weight-decay": 0.01,
       "mixed-precision": true,
       "save-checkpoints": true,
+      "checkpoint-interval": 1,
       "projection-dim": 64,
-      "memory-size": 5,
-      "update-interval": 50,
       "valley-strength": 0.05,
-      "smoothing-factor": 0.95
+      "smoothing-factor": 0.95,
+      "update-interval": 50,
+      "memory-size": 5,
+      "grad-store-interval": 5
     },
     {
-      "name": "bert-base_sst2_adam",
+      "name": "bert_base_sst2_adam",
       "architecture": "bert-base",
       "dataset": "glue-sst2",
       "optimizer": "adam",
       "epochs": 5,
-      "batch-size": 32,
+      "batch-size": 16,
       "lr": 2e-5,
       "weight-decay": 0.01,
       "mixed-precision": true,
-      "save-checkpoints": true
+      "save-checkpoints": true,
+      "checkpoint-interval": 1
     },
     {
-      "name": "bert-base_sst2_talt_tuned",
+      "name": "bert_base_sst2_sgd",
       "architecture": "bert-base",
       "dataset": "glue-sst2",
-      "optimizer": "talt",
-      "tune-hyperparams": true,
-      "n-trials": 20,
-      "study-name": "bert_talt_tuning",
+      "optimizer": "sgd",
       "epochs": 5,
-      "batch-size": 32,
+      "batch-size": 16,
       "lr": 2e-5,
+      "momentum": 0.9,
       "weight-decay": 0.01,
       "mixed-precision": true,
-      "save-checkpoints": true
+      "save-checkpoints": true,
+      "checkpoint-interval": 1
     }
   ]
 }

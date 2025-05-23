@@ -9,6 +9,7 @@ import torch
 import numpy as np
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,10 @@ class Experiment:
         
         # Initialize best model weights
         self.best_model_weights = None
+        
+        # Initialize timing
+        self.start_time = None
+        self.end_time = None
     
     def _create_optimizer(self):
         """
@@ -172,16 +177,29 @@ class Experiment:
         
         return optimizer
     
+    def save_experiment_metadata(self):
+        """Save detailed experiment metadata."""
+        metadata = {
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'total_parameters': sum(p.numel() for p in self.model.parameters()),
+            'trainable_parameters': sum(p.numel() for p in self.model.parameters() if p.requires_grad),
+            'peak_memory_usage': torch.cuda.max_memory_allocated() if torch.cuda.is_available() else 0,
+            'python_version': sys.version,
+            'pytorch_version': torch.__version__,
+            'cuda_version': torch.version.cuda if torch.cuda.is_available() else None,
+            'device_name': torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu',
+            'model_config': self.model_config,
+            'optimizer_type': self.optimizer_type,
+            'optimizer_config': self.optimizer_config
+        }
+        
+        import json
+        with open(os.path.join(self.output_dir, 'metadata.json'), 'w') as f:
+            json.dump(metadata, f, indent=2)
+    
     def _train_epoch(self, epoch):
-        """
-        Train for one epoch with proper handling for different optimizer types.
-        
-        Args:
-            epoch: Current epoch number
-        
-        Returns:
-            tuple: (train_loss, train_accuracy)
-        """
+        """Train for one epoch with improved TALT handling."""
         self.model.train()
         total_loss = 0.0
         correct = 0
@@ -190,112 +208,94 @@ class Experiment:
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}")
         
         for batch_idx, batch in enumerate(pbar):
-            if self.optimizer_type == 'talt':
-                # TALT optimizer has its own step method that handles forward/backward/optimize
-                if isinstance(batch, dict):  # For BERT/transformer models
-                    input_ids = batch['input_ids'].to(self.device)
-                    attention_mask = batch['attention_mask'].to(self.device)
-                    token_type_ids = batch.get('token_type_ids')
-                    if token_type_ids is not None:
-                        token_type_ids = token_type_ids.to(self.device)
-                    labels = batch['labels'].to(self.device)
+            try:
+                if self.optimizer_type == 'talt':
+                    # Use the new step_complex method for better handling
+                    if isinstance(batch, dict):  # For BERT/transformer models
+                        loss_val, outputs = self.optimizer.step_complex(self.criterion, batch)
+                        labels = batch['labels'].to(self.device)
+                    else:  # For CNN models
+                        inputs, labels = batch
+                        inputs, labels = inputs.to(self.device), labels.to(self.device)
+                        batch_dict = {'inputs': inputs, 'labels': labels}
+                        loss_val, outputs = self.optimizer.step_complex(self.criterion, batch_dict)
                     
-                    # Create a loss function closure that handles the transformer inputs
-                    def loss_fn(outputs, targets):
-                        return self.criterion(outputs, targets)
-                    
-                    # For transformer models, we need to handle the complex input structure
-                    # This is a workaround since TALT expects a simpler (x, y) format
-                    # We use a wrapper to ensure TALT can handle the transformer model's inputs
-                    def model_forward(x):
-                        return self.model(
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            token_type_ids=token_type_ids if token_type_ids is not None else None
-                        )
-                    
-                    # Call TALT's step method with our model forward function
-                    loss_val, outputs = self.optimizer.step(
-                        lambda x, y: self.criterion(model_forward(x), y),
-                        input_ids,  # Placeholder input
-                        labels
-                    )
-                    
-                else:  # For CNN models - simple (inputs, labels) format
-                    inputs, labels = batch
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
-                    
-                    # Let TALT handle the full forward/backward/optimize process
-                    loss_val, outputs = self.optimizer.step(self.criterion, inputs, labels)
+                    loss = torch.tensor(loss_val) if not isinstance(loss_val, torch.Tensor) else loss_val
                 
-                # TALT returns the loss value directly, not a tensor
-                loss = torch.tensor(loss_val) if not isinstance(loss_val, torch.Tensor) else loss_val
-                
-            else:  # Standard PyTorch optimizers
-                # Handle different dataset types
-                if isinstance(batch, dict):  # For BERT/transformer models
-                    input_ids = batch['input_ids'].to(self.device)
-                    attention_mask = batch['attention_mask'].to(self.device)
-                    token_type_ids = batch.get('token_type_ids')
-                    if token_type_ids is not None:
-                        token_type_ids = token_type_ids.to(self.device)
-                    labels = batch['labels'].to(self.device)
-                    
-                    self.optimizer.zero_grad()
-                    
-                    if self.mixed_precision and self.scaler is not None:
-                        with autocast():
+                else:  # Standard PyTorch optimizers
+                    # Handle different dataset types
+                    if isinstance(batch, dict):  # For BERT/transformer models
+                        input_ids = batch['input_ids'].to(self.device)
+                        attention_mask = batch['attention_mask'].to(self.device)
+                        token_type_ids = batch.get('token_type_ids')
+                        if token_type_ids is not None:
+                            token_type_ids = token_type_ids.to(self.device)
+                        labels = batch['labels'].to(self.device)
+                        
+                        self.optimizer.zero_grad()
+                        
+                        if self.mixed_precision and self.scaler is not None:
+                            with autocast():
+                                outputs = self.model(
+                                    input_ids=input_ids,
+                                    attention_mask=attention_mask,
+                                    token_type_ids=token_type_ids
+                                )
+                                loss = self.criterion(outputs, labels)
+                            
+                            self.scaler.scale(loss).backward()
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                        else:
                             outputs = self.model(
                                 input_ids=input_ids,
                                 attention_mask=attention_mask,
                                 token_type_ids=token_type_ids
                             )
                             loss = self.criterion(outputs, labels)
+                            loss.backward()
+                            self.optimizer.step()
+                    
+                    else:  # For CNN models
+                        inputs, labels = batch
+                        inputs, labels = inputs.to(self.device), labels.to(self.device)
                         
-                        self.scaler.scale(loss).backward()
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                    else:
-                        outputs = self.model(
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            token_type_ids=token_type_ids
-                        )
-                        loss = self.criterion(outputs, labels)
-                        loss.backward()
-                        self.optimizer.step()
-                
-                else:  # For CNN models
-                    inputs, labels = batch
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
-                    
-                    self.optimizer.zero_grad()
-                    
-                    if self.mixed_precision and self.scaler is not None:
-                        with autocast():
+                        self.optimizer.zero_grad()
+                        
+                        if self.mixed_precision and self.scaler is not None:
+                            with autocast():
+                                outputs = self.model(inputs)
+                                loss = self.criterion(outputs, labels)
+                            
+                            self.scaler.scale(loss).backward()
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                        else:
                             outputs = self.model(inputs)
                             loss = self.criterion(outputs, labels)
-                        
-                        self.scaler.scale(loss).backward()
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                    else:
-                        outputs = self.model(inputs)
-                        loss = self.criterion(outputs, labels)
-                        loss.backward()
-                        self.optimizer.step()
-            
-            # Calculate metrics
-            _, predicted = torch.max(outputs, 1)
-            total_loss += loss.item()
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-            
-            # Update progress bar
-            pbar.set_postfix({
-                'loss': total_loss / (batch_idx + 1),
-                'acc': correct / total * 100.0
-            })
+                            loss.backward()
+                            self.optimizer.step()
+                
+                # Calculate metrics
+                _, predicted = torch.max(outputs, 1)
+                total_loss += loss.item()
+                correct += (predicted == labels).sum().item()
+                total += labels.size(0)
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'loss': total_loss / (batch_idx + 1),
+                    'acc': correct / total * 100.0
+                })
+                
+            except torch.cuda.OutOfMemoryError:
+                logger.error(f"GPU OOM at batch {batch_idx}, clearing cache")
+                torch.cuda.empty_cache()
+                # Skip this batch
+                continue
+            except Exception as e:
+                logger.error(f"Error in training batch {batch_idx}: {e}")
+                continue
         
         epoch_loss = total_loss / len(self.train_loader)
         epoch_acc = correct / total
@@ -407,58 +407,64 @@ class Experiment:
         return test_loss, test_acc
     
     def run(self):
-        """
-        Run the experiment (train and evaluate).
-        
-        Returns:
-            dict: Experiment results
-        """
+        """Run the experiment with improved error handling and metadata tracking."""
         logger.info(f"Starting experiment with {self.optimizer_type} optimizer")
         logger.info(f"Model: {self.model_config['name']}")
         
+        self.start_time = datetime.now()
         start_time = time.time()
         
-        # Training loop
-        for epoch in range(self.epochs):
-            # Train for one epoch
-            train_loss, train_acc = self._train_epoch(epoch)
-            
-            # Validate
-            val_loss, val_acc = self._validate()
-            
-            # Update results
-            self.results['train_loss'].append(train_loss)
-            self.results['train_acc'].append(train_acc)
-            self.results['val_loss'].append(val_loss)
-            self.results['val_acc'].append(val_acc)
-            
-            # Check if this is the best model
-            if val_acc > self.results['best_val_acc']:
-                self.results['best_val_acc'] = val_acc
-                self.results['best_epoch'] = epoch
-                self.best_model_weights = self.model.state_dict().copy()
+        try:
+            # Training loop
+            for epoch in range(self.epochs):
+                # Train for one epoch
+                train_loss, train_acc = self._train_epoch(epoch)
                 
-                # Save best model
-                if self.save_checkpoints:
-                    self._save_checkpoint(epoch, is_best=True)
+                # Validate
+                val_loss, val_acc = self._validate()
+                
+                # Update results
+                self.results['train_loss'].append(train_loss)
+                self.results['train_acc'].append(train_acc)
+                self.results['val_loss'].append(val_loss)
+                self.results['val_acc'].append(val_acc)
+                
+                # Check if this is the best model
+                if val_acc > self.results['best_val_acc']:
+                    self.results['best_val_acc'] = val_acc
+                    self.results['best_epoch'] = epoch
+                    self.best_model_weights = self.model.state_dict().copy()
+                    
+                    # Save best model
+                    if self.save_checkpoints:
+                        self._save_checkpoint(epoch, is_best=True)
+                
+                # Save checkpoint
+                if self.save_checkpoints and (epoch + 1) % self.checkpoint_interval == 0:
+                    self._save_checkpoint(epoch)
+                
+                # Log progress
+                logger.info(f"Epoch {epoch+1}/{self.epochs}: "
+                            f"Train Loss={train_loss:.4f}, Train Acc={train_acc:.4f}, "
+                            f"Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
             
-            # Save checkpoint
-            if self.save_checkpoints and (epoch + 1) % self.checkpoint_interval == 0:
-                self._save_checkpoint(epoch)
+            # Calculate training time
+            self.results['training_time'] = time.time() - start_time
+            self.end_time = datetime.now()
             
-            # Log progress
-            logger.info(f"Epoch {epoch+1}/{self.epochs}: "
-                        f"Train Loss={train_loss:.4f}, Train Acc={train_acc:.4f}, "
-                        f"Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
-        
-        # Calculate training time
-        self.results['training_time'] = time.time() - start_time
-        
-        # Test model
-        self.test()
-        
-        # Save results
-        self._save_results()
+            # Test model
+            self.test()
+            
+            # Save results and metadata
+            self._save_results()
+            self.save_experiment_metadata()
+            
+        except Exception as e:
+            logger.error(f"Experiment failed: {e}")
+            self.end_time = datetime.now()
+            self.results['error'] = str(e)
+            self.save_experiment_metadata()
+            raise
         
         logger.info(f"Experiment completed in {self.results['training_time']:.2f} seconds")
         logger.info(f"Best validation accuracy: {self.results['best_val_acc']:.4f} "

@@ -8,6 +8,8 @@ import torch
 import logging
 from datetime import datetime
 import sys
+import random
+import numpy as np
 
 # Get the absolute path to the project root
 script_path = os.path.abspath(__file__)
@@ -38,65 +40,95 @@ logging.basicConfig(
 )
 logger = logging.getLogger('talt_experiment')
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Run TALT optimization experiments')
+def set_reproducibility(seed=42):
+    """Set random seeds for reproducibility."""
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def validate_experiment_config(args):
+    """Validate experiment configuration before running."""
+    required_fields = ['name', 'architecture', 'dataset', 'optimizer', 'epochs']
+    for field in required_fields:
+        if not hasattr(args, field) or getattr(args, field) is None:
+            raise ValueError(f"Missing required field: {field}")
     
-    # Add argument aliases to handle both hyphen and underscore formats
-    # Basic experiment configuration
-    parser.add_argument('--name', '--name', type=str, required=True, help='Experiment name')
-    parser.add_argument('--architecture', '--architecture', type=str, required=True, 
+    # Validate optimizer-specific parameters
+    if args.optimizer == 'talt':
+        talt_params = ['projection_dim', 'valley_strength', 'smoothing_factor']
+        for param in talt_params:
+            if not hasattr(args, param) or getattr(args, param) is None:
+                logger.warning(f"Missing TALT parameter {param}, using default")
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run single TALT optimization experiment')
+    
+    parser.add_argument('--name', type=str, required=True, help='Experiment name')
+    parser.add_argument('--architecture', type=str, required=True, 
                         choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base'],
                         help='Neural network architecture')
-    parser.add_argument('--dataset', '--dataset', type=str, required=True, 
+    parser.add_argument('--dataset', type=str, required=True, 
                         choices=['cifar10', 'cifar100', 'glue-sst2'],
                         help='Dataset to use for training and evaluation')
-    parser.add_argument('--optimizer', '--optimizer', type=str, required=True, 
+    parser.add_argument('--optimizer', type=str, required=True, 
                         choices=['talt', 'sgd', 'adam'],
                         help='Optimizer to use for training')
+    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
+    parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
+    parser.add_argument('--lr', type=float, default=0.1, help='Base learning rate')
+    parser.add_argument('--weight-decay', type=float, default=5e-4, help='Weight decay')
+    parser.add_argument('--mixed-precision', action='store_true', help='Use mixed precision training')
+    parser.add_argument('--projection-dim', type=int, default=64, help='TALT projection dimension')
+    parser.add_argument('--memory-size', type=int, default=10, help='TALT memory size')
+    parser.add_argument('--update-interval', type=int, default=100, help='TALT update interval')
+    parser.add_argument('--valley-strength', type=float, default=0.1, help='TALT valley strength')
+    parser.add_argument('--smoothing-factor', type=float, default=0.9, help='TALT smoothing factor')
+    parser.add_argument('--grad-store-interval', type=int, default=10, help='TALT gradient store interval')
+    parser.add_argument('--cov-decay', type=float, default=0.99, help='TALT covariance decay')
+    parser.add_argument('--adaptive-reg', type=float, default=1e-5, help='TALT adaptive regularization')
+    parser.add_argument('--tune-hyperparams', action='store_true', help='Tune TALT hyperparameters')
+    parser.add_argument('--n-trials', type=int, default=30, help='Number of hyperparameter tuning trials')
+    parser.add_argument('--study-name', type=str, default=None, help='Optuna study name')
+    parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
+    parser.add_argument('--save-checkpoints', action='store_true', help='Save model checkpoints')
+    parser.add_argument('--checkpoint-interval', type=int, default=5, help='Interval for saving checkpoints')
+    parser.add_argument('--resume-from', type=str, default=None, help='Resume from checkpoint')
+    parser.add_argument('--gpu-index', type=int, default=0, help='GPU index')
+    parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     
-    # Training parameters
-    parser.add_argument('--epochs', '--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--batch-size', '--batch_size', type=int, default=128, help='Batch size')
-    parser.add_argument('--lr', '--lr', type=float, default=0.1, help='Base learning rate')
-    parser.add_argument('--weight-decay', '--weight_decay', type=float, default=5e-4, help='Weight decay')
-    parser.add_argument('--mixed-precision', '--mixed_precision', action='store_true', help='Use mixed precision training')
+    return parser.parse_args()
+
+def find_latest_checkpoint(experiment_dir):
+    """Find the latest checkpoint if experiment was interrupted."""
+    checkpoint_dir = os.path.join(experiment_dir, 'checkpoints')
+    if not os.path.exists(checkpoint_dir):
+        return None
     
-    # TALT specific parameters
-    parser.add_argument('--projection-dim', '--projection_dim', type=int, default=64, help='TALT projection dimension')
-    parser.add_argument('--memory-size', '--memory_size', type=int, default=10, help='TALT memory size')
-    parser.add_argument('--update-interval', '--update_interval', type=int, default=100, help='TALT update interval')
-    parser.add_argument('--valley-strength', '--valley_strength', type=float, default=0.1, help='TALT valley strength')
-    parser.add_argument('--smoothing-factor', '--smoothing_factor', type=float, default=0.9, help='TALT smoothing factor')
-    parser.add_argument('--grad-store-interval', '--grad_store_interval', type=int, default=10, help='TALT gradient store interval')
-    parser.add_argument('--cov-decay', '--cov_decay', type=float, default=0.99, help='TALT covariance decay')
-    parser.add_argument('--adaptive-reg', '--adaptive_reg', type=float, default=1e-5, help='TALT adaptive regularization')
+    import glob
+    checkpoints = glob.glob(os.path.join(checkpoint_dir, 'checkpoint_epoch_*.pt'))
+    if not checkpoints:
+        return None
     
-    # Hyperparameter tuning
-    parser.add_argument('--tune-hyperparams', '--tune_hyperparams', action='store_true', help='Tune TALT hyperparameters')
-    parser.add_argument('--n-trials', '--n_trials', type=int, default=30, help='Number of hyperparameter tuning trials')
-    parser.add_argument('--study-name', '--study_name', type=str, default=None, help='Optuna study name')
-    
-    # Experiment output
-    parser.add_argument('--output-dir', '--output_dir', type=str, default='./results', help='Output directory')
-    parser.add_argument('--save-checkpoints', '--save_checkpoints', action='store_true', help='Save model checkpoints')
-    parser.add_argument('--checkpoint-interval', '--checkpoint_interval', type=int, default=5, help='Interval for saving checkpoints')
-    parser.add_argument('--resume-from', '--resume_from', type=str, default=None, help='Resume from checkpoint')
-    
-    # Hardware configuration
-    parser.add_argument('--gpu-index', '--gpu_index', type=int, default=0, help='GPU index')
-    parser.add_argument('--num-workers', '--num_workers', type=int, default=4, help='Number of data loading workers')
-    
-    # Parse and process arguments to handle potential duplicates
-    args, unknown = parser.parse_known_args()
-    
-    # Log any unknown arguments
-    if unknown:
-        logger.warning(f"Unknown arguments: {unknown}")
-    
-    return args
+    # Sort by epoch number
+    latest = sorted(checkpoints, key=lambda x: int(x.split('_')[-1].split('.')[0]))[-1]
+    return latest
 
 def main():
     args = parse_args()
+    
+    # Set reproducibility
+    set_reproducibility(args.seed)
+    
+    # Validate configuration
+    try:
+        validate_experiment_config(args)
+    except ValueError as e:
+        logger.error(f"Configuration validation failed: {e}")
+        return
     
     # Create output directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -195,6 +227,13 @@ def main():
     # Resume from checkpoint if specified
     if args.resume_from:
         experiment.load_checkpoint(args.resume_from)
+    
+    # Auto-recovery from checkpoints if experiment directory exists
+    if args.resume_from is None and os.path.exists(experiment_dir):
+        latest_checkpoint = find_latest_checkpoint(experiment_dir)
+        if latest_checkpoint:
+            logger.info(f"Found existing checkpoint: {latest_checkpoint}")
+            args.resume_from = latest_checkpoint
     
     # Run experiment
     experiment.run()

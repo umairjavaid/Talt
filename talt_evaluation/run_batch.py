@@ -8,6 +8,7 @@ import logging
 import subprocess
 from datetime import datetime
 import concurrent.futures
+import torch
 
 # Configure logging
 logging.basicConfig(
@@ -19,29 +20,36 @@ logger = logging.getLogger('talt_batch_experiment')
 def parse_args():
     parser = argparse.ArgumentParser(description='Run batch of TALT optimization experiments')
     
-    # Support both hyphen and underscore versions of arguments
-    parser.add_argument('--config', '--config', type=str, required=True, 
+    parser.add_argument('--config', type=str, required=True, 
                         help='Path to batch configuration JSON file')
-    parser.add_argument('--output-dir', '--output_dir', type=str, default='./results', 
+    parser.add_argument('--output-dir', type=str, default='./results', 
                         help='Base output directory for all experiments')
-    parser.add_argument('--gpu-indices', '--gpu_indices', type=str, default='0', 
+    parser.add_argument('--gpu-indices', type=str, default='0', 
                         help='Comma-separated list of GPU indices to use')
-    parser.add_argument('--parallel', '--parallel', action='store_true', 
+    parser.add_argument('--parallel', action='store_true', 
                         help='Run experiments in parallel if multiple GPUs are specified')
-    parser.add_argument('--max-parallel', '--max_parallel', type=int, default=None, 
+    parser.add_argument('--max-parallel', type=int, default=None, 
                         help='Maximum number of parallel experiments')
     
-    # Parse and handle any unknown arguments
-    args, unknown = parser.parse_known_args()
+    return parser.parse_args()
+
+def allocate_gpu_for_experiment(experiment_idx, gpu_indices):
+    """Intelligently allocate GPUs to experiments."""
+    # Round-robin allocation
+    gpu_idx = experiment_idx % len(gpu_indices)
     
-    # Log any unknown arguments
-    if unknown:
-        logger.warning(f"Unknown arguments: {unknown}")
+    # Check GPU memory before allocation
+    if torch.cuda.is_available():
+        target_gpu = gpu_indices[gpu_idx]
+        torch.cuda.set_device(target_gpu)
+        free_memory = torch.cuda.mem_get_info()[0]
+        if free_memory < 2 * 1024**3:  # Less than 2GB free
+            torch.cuda.empty_cache()
     
-    return args
+    return gpu_indices[gpu_idx]
 
 def run_experiment(cmd, gpu_index):
-    """Run a single experiment with the specified GPU index."""
+    """Run a single experiment with improved error handling."""
     cmd_with_gpu = cmd + f" --gpu-index {gpu_index}"
     logger.info(f"Running: {cmd_with_gpu}")
     
@@ -54,31 +62,45 @@ def run_experiment(cmd, gpu_index):
     if cmd_with_gpu.startswith("python talt_evaluation/"):
         cmd_with_gpu = f"python {os.path.join(project_root, cmd_with_gpu[7:])}"
     
-    process = subprocess.Popen(
-        cmd_with_gpu,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True,
-        cwd=project_root  # Run from project root to ensure proper module paths
-    )
-    
-    stdout, stderr = process.communicate()
-    success = process.returncode == 0
-    
-    if success:
-        logger.info(f"Experiment completed successfully on GPU {gpu_index}")
-    else:
-        logger.error(f"Experiment failed on GPU {gpu_index}. Error: {stderr}")
-    
-    return {
-        'cmd': cmd_with_gpu,
-        'success': success,
-        'gpu_index': gpu_index,
-        'stdout': stdout,
-        'stderr': stderr,
-        'return_code': process.returncode
-    }
+    try:
+        process = subprocess.Popen(
+            cmd_with_gpu,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            cwd=project_root
+        )
+        
+        stdout, stderr = process.communicate()
+        success = process.returncode == 0
+        
+        if success:
+            logger.info(f"Experiment completed successfully on GPU {gpu_index}")
+        else:
+            logger.error(f"Experiment failed on GPU {gpu_index}. Error: {stderr}")
+            
+            # Try to detect OOM and suggest reduced batch size
+            if "out of memory" in stderr.lower():
+                logger.info("Detected OOM error - experiment might benefit from reduced batch size")
+        
+        return {
+            'cmd': cmd_with_gpu,
+            'success': success,
+            'gpu_index': gpu_index,
+            'stdout': stdout,
+            'stderr': stderr,
+            'return_code': process.returncode
+        }
+        
+    except Exception as e:
+        logger.error(f"Exception running experiment on GPU {gpu_index}: {e}")
+        return {
+            'cmd': cmd_with_gpu,
+            'success': False,
+            'gpu_index': gpu_index,
+            'error': str(e)
+        }
 
 def main():
     args = parse_args()
