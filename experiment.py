@@ -94,3 +94,50 @@ def save_checkpoint(model, optimizer, scheduler, epoch, loss, checkpoint_path):
     
     torch.save(checkpoint, checkpoint_path)
     logger.info(f"Saved checkpoint to {checkpoint_path}")
+
+def extract_batch_data(batch):
+    """
+    Extract inputs and targets from batch, handling different batch formats.
+    
+    Args:
+        batch: Batch data from DataLoader (can be tuple, dict, or tensor)
+        
+    Returns:
+        tuple: (inputs, targets) extracted from the batch
+    """
+    if isinstance(batch, tuple):
+        # Standard format: (inputs, targets)
+        if len(batch) == 2:
+            return batch[0], batch[1]
+        else:
+            logger.warning(f"Unexpected tuple length: {len(batch)}, using first two elements")
+            return batch[0], batch[1]
+    elif isinstance(batch, dict):
+        # Dictionary format (common in NLP tasks)
+        if 'input_ids' in batch and 'labels' in batch:
+            return batch['input_ids'], batch['labels']
+        elif 'inputs' in batch and 'targets' in batch:
+            return batch['inputs'], batch['targets']
+        else:
+            logger.error(f"Unsupported dict keys: {batch.keys()}")
+            raise ValueError(f"Unsupported batch dict format")
+    elif isinstance(batch, torch.Tensor):
+        # Single tensor (unsupervised learning)
+        return batch, None
+    else:
+        logger.error(f"Unsupported batch type: {type(batch)}")
+        raise ValueError(f"Unsupported batch type: {type(batch)}. Expected tensor, tuple, or dict.")
+
+def safe_divide(numerator, denominator, default=0.0):
+    """
+    Safely divide two numbers, returning default value if denominator is zero.
+    
+    Args:
+        numerator: The numerator
+        denominator: The denominator
+        default: Default value to return if denominator is zero
+        
+    Returns:
+        float: Result of division or default value
+    """
+    return numerator / denominator if denominator != 0 else default

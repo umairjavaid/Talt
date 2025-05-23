@@ -275,11 +275,6 @@ def main():
     # Run experiment
     experiment.run()
     
-    # Debugging: Log gradients and parameter updates
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            logger.info(f"Parameter: {name}, Grad: {param.grad}")
-    
     # Create visualization report
     create_training_report(experiment, experiment_dir)
     
