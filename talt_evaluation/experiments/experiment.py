@@ -105,8 +105,8 @@ class Experiment:
         """
         if self.optimizer_type == 'talt':
             try:
-                # Import TALT optimizer
-                from talt.optimizer import ImprovedTALTOptimizer as TALT
+                # Correct the import path for ImprovedTALTOptimizer
+                from talt.optimizer.improved_talt import ImprovedTALTOptimizer as TALT
                 
                 # Extract base optimizer parameters
                 base_optimizer_config = {
