@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Import core visualization components
 try:
-    from talt.visualization.visualizer import ImprovedTALTVisualizer
-    from talt.visualization.original_visualizer import TALTVisualizer
+    from talt.visualization.visualizer import TALTVisualizer
+    from talt.visualization.visualizer import TALTVisualizer as ImprovedTALTVisualizer  # Fix import
 except ImportError as e:
     # Provide fallback imports for partial installations
     import warnings

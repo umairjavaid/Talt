@@ -44,17 +44,36 @@ class RandomProjection:
         Returns:
             Sparse projection matrix
         """
-        # Create a mask for non-zero elements
-        mask = torch.rand(self.target_dim, self.original_dim) < sparsity
+        # Calculate the number of non-zero elements per row
+        nnz_per_row = max(1, int(sparsity * self.original_dim))
 
-        # Create random signs: 1 or -1
-        signs = torch.randint(0, 2, (self.target_dim, self.original_dim)) * 2 - 1
+        # Indices for non-zero elements
+        indices = []
+        values = []
 
-        # Scale factor for unit variance
-        scale = math.sqrt(1.0 / sparsity)
+        for row in range(self.target_dim):
+            # Randomly select indices for non-zero elements in this row
+            row_indices = torch.randperm(self.original_dim)[:nnz_per_row]
+            indices.append(torch.stack([torch.full_like(row_indices, row), row_indices]))
 
-        # Create projection matrix
-        projection = (mask.float() * signs.float() * scale) / math.sqrt(self.target_dim)
+            # Assign random signs (+1 or -1) to the non-zero elements
+            row_values = torch.randint(0, 2, (nnz_per_row,)) * 2 - 1
+            values.append(row_values.float())
+
+        # Combine indices and values
+        indices = torch.cat(indices, dim=1)
+        values = torch.cat(values)
+
+        # Create sparse tensor
+        projection = torch.sparse_coo_tensor(
+            indices,
+            values,
+            size=(self.target_dim, self.original_dim),
+            dtype=torch.float32
+        )
+
+        # Scale for unit variance
+        projection = projection * math.sqrt(1.0 / sparsity) / math.sqrt(self.target_dim)
         return projection
 
     def project(self, data: torch.Tensor) -> torch.Tensor:
@@ -77,8 +96,8 @@ class RandomProjection:
         # Move projection matrix to same device as data
         projection = self.projection.to(data.device)
 
-        # Project data
-        projected = torch.matmul(data, projection.t())
+        # Perform sparse matrix multiplication
+        projected = torch.sparse.mm(projection, data.t()).t()
 
         # Return in original shape
         return projected.squeeze(0) if is_1d else projected

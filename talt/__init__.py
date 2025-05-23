@@ -10,7 +10,6 @@ from talt.utils import Timer, print_memory_usage, PerformanceTracker
 from talt.components import RandomProjection, IncrementalCovariance, PowerIteration, ValleyDetector
 from talt.optimizer import ImprovedTALTOptimizer, TALTOptimizer
 from talt.visualization import ImprovedTALTVisualizer, TALTVisualizer
-from talt.train import get_loaders, train_and_evaluate_improved, evaluate
 from talt_evaluation.models import SimpleCNN
 
 __all__ = [
@@ -25,8 +24,5 @@ __all__ = [
     'TALTOptimizer',
     'ImprovedTALTVisualizer',
     'TALTVisualizer',
-    'get_loaders',
-    'train_and_evaluate_improved',
-    'evaluate',
     'SimpleCNN'
 ]

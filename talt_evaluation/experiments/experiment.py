@@ -105,9 +105,15 @@ class Experiment:
         """
         if self.optimizer_type == 'talt':
             try:
-                # Correct the import path for ImprovedTALTOptimizer
                 from talt.optimizer.improved_talt import ImprovedTALTOptimizer as TALT
-                
+            except ImportError as e:
+                logger.error(f"TALT optimizer not available: {e}")
+                raise ImportError("Ensure the TALT optimizer is correctly installed and accessible.")
+            except Exception as e:
+                logger.error(f"Error creating TALT optimizer: {e}")
+                raise
+            
+            try:
                 # Extract base optimizer parameters
                 base_optimizer_config = {
                     'momentum': self.optimizer_config.get('momentum', 0.9),
@@ -143,9 +149,6 @@ class Experiment:
                     **talt_params
                 )
                 logger.info("Created TALT optimizer with properly separated parameters")
-            except ImportError as e:
-                logger.error(f"TALT optimizer not available: {e}")
-                raise
             except Exception as e:
                 logger.error(f"Error creating TALT optimizer: {e}")
                 raise

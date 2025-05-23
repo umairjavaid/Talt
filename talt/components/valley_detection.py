@@ -14,16 +14,20 @@ class ValleyDetector:
     potentially oscillating behavior in the loss.
     """
 
-    def __init__(self, history_size: int = 10, valley_threshold: float = 0.1):
+    def __init__(self, history_size: int = 10, valley_threshold: float = 0.1, window_size: int = 5, threshold: Optional[float] = None):
         """
         Initialize valley detector.
 
         Args:
             history_size: Number of gradients to keep in history
             valley_threshold: Threshold for valley detection
+            window_size: Size of the window for gradient consistency checks
+            threshold: Additional threshold parameter for compatibility
         """
         self.history_size = history_size
         self.valley_threshold = valley_threshold
+        self.window_size = window_size
+        self.threshold = threshold  # Store the threshold if provided
         self.grad_history: List[torch.Tensor] = []
 
     def update(self, grad: torch.Tensor) -> None:
