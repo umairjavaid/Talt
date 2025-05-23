@@ -290,8 +290,13 @@ class TALTVisualizer:
                                          save_path: Optional[str] = None,
                                          show: bool = True) -> None:
         """Visualize gradient transformations over time."""
-        if not hasattr(self, 'data') or 'grad_memory' not in self.data:
-            print("No gradient transformation data available")
+        if not self._check_matplotlib(): return
+        
+        # Updated to use correct data key
+        grad_memory = self.data.get('grad_memory_for_transformations', self.data.get('grad_memory', {}))
+        
+        if not grad_memory:
+            logger.info("No gradient transformation data available")
             return
             
         import matplotlib.pyplot as plt
@@ -300,21 +305,39 @@ class TALTVisualizer:
         fig.suptitle("Gradient Transformations Analysis")
         
         # Plot gradient norms for different parameters
-        for i, (param_name, grad_data) in enumerate(self.data['grad_memory'].items()):
-            if i >= 4:  # Limit to 4 parameters
-                break
+        param_items = list(grad_memory.items())[:4]  # Limit to 4 parameters
+        
+        for i, (param_name, grad_data) in enumerate(param_items):
             ax = axes[i // 2, i % 2]
             
-            steps, norms, _ = zip(*grad_data) if grad_data else ([], [], [])
-            ax.plot(steps, norms, label=f'{param_name} grad norm')
-            ax.set_title(f"Gradient Norm: {param_name}")
-            ax.set_xlabel("Step")
-            ax.set_ylabel("Norm")
-            ax.grid(True, alpha=0.3)
+            if isinstance(grad_data, list) and grad_data:
+                # Handle different grad_data formats
+                if isinstance(grad_data[0], tuple) and len(grad_data[0]) >= 2:
+                    # Format: [(step, norm, ...)]
+                    steps, norms, _ = zip(*grad_data)
+                elif hasattr(grad_data[0], 'norm'):
+                    # Tensor objects
+                    steps = list(range(len(grad_data)))
+                    norms = [g.norm().item() if hasattr(g, 'norm') else float(g) for g in grad_data]
+                else:
+                    # Simple list of values
+                    steps = list(range(len(grad_data)))
+                    norms = grad_data
+                
+                ax.plot(steps, norms, label=f'{param_name} grad norm')
+                ax.set_title(f"Gradient Norm: {param_name}")
+                ax.set_xlabel("Step")
+                ax.set_ylabel("Norm")
+                ax.grid(True, alpha=0.3)
+            else:
+                ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(f"Gradient Norm: {param_name}")
         
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            full_path = os.path.join(self.output_dir, save_path) if not os.path.isabs(save_path) else save_path
+            plt.savefig(full_path, dpi=150, bbox_inches='tight')
+            logger.info(f"Gradient transformations plot saved to {full_path}")
         if show:
             plt.show()
         plt.close()
@@ -323,19 +346,18 @@ class TALTVisualizer:
                                             save_path: Optional[str] = None,
                                             show: bool = True) -> None:
         """Visualize loss landscape with valley/bifurcation detections."""
-        if not hasattr(self, 'data') or 'loss_history' not in self.data:
-            print("No loss history data available")
+        if not self._check_matplotlib(): return
+        
+        # Updated to use correct data keys
+        loss_history = self.data.get('loss_history_for_landscape', self.data.get('loss_history', list(self.data['loss_values'])))
+        detection_points = self.data.get('valley_detections', [])
+        
+        if not loss_history:
+            logger.info("No loss history to plot")
             return
             
         import matplotlib.pyplot as plt
         
-        loss_history = self.data.get('loss_history', [])
-        detection_points = self.data.get('valley_detections', [])
-        
-        if not loss_history:
-            print("No loss history to plot")
-            return
-            
         plt.figure(figsize=(10, 6))
         plt.plot(loss_history, 'b-', label='Loss', linewidth=1.5)
         
@@ -355,7 +377,9 @@ class TALTVisualizer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            full_path = os.path.join(self.output_dir, save_path) if not os.path.isabs(save_path) else save_path
+            plt.savefig(full_path, dpi=150, bbox_inches='tight')
+            logger.info(f"Loss landscape plot saved to {full_path}")
         if show:
             plt.show()
         plt.close()
@@ -456,20 +480,15 @@ class TALTVisualizer:
 
             if 'eigenvalue_spectra' in include_plots and self.data.get('eigenvalues_history'):
                 eigen_path = f"{experiment_name}_eigenvalues.png"
+                # Updated to use parameter_name instead of param_names
                 param_to_plot = next(iter(self.data['eigenvalues_history']), None)
                 if param_to_plot:
-                    self.visualize_eigenvalue_spectra(param_names=[param_to_plot], save_path=eigen_path, show=False)
+                    self.visualize_eigenvalue_spectra(parameter_name=param_to_plot, save_path=eigen_path, show=False)
                     if os.path.exists(os.path.join(self.output_dir, eigen_path)):
                         f.write(f'<h2>Eigenvalue Spectra</h2><img src="{eigen_path}" alt="Eigenvalue Spectra"><br>')
             
             f.write("</body></html>")
         logger.info(f"Report generated at {report_path}")
-        # Optionally, clean up individual plot files if they are only for the report
-        # for plot_file in plot_files.values():
-        #     try:
-        #         os.remove(os.path.join(self.output_dir, plot_file))
-        #     except OSError as e:
-        #         logger.warning(f"Could not remove plot file {plot_file}: {e}")
 
 # Example usage (for testing this file directly):
 if __name__ == '__main__':

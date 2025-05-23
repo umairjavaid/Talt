@@ -261,6 +261,9 @@ def main():
         checkpoint_interval=args.checkpoint_interval
     )
     
+    # Set experiment name for better visualization naming
+    experiment.name = args.name
+    
     # Resume from checkpoint if specified
     if args.resume_from:
         experiment.load_checkpoint(args.resume_from)
@@ -275,8 +278,48 @@ def main():
     # Run experiment
     experiment.run()
     
-    # Create visualization report
-    create_training_report(experiment, experiment_dir)
+    # Create comprehensive visualization report using adaptive visualizer
+    try:
+        from talt_evaluation.visualization import AdaptiveVisualizer
+        
+        # Create adaptive visualizer
+        visualizer = AdaptiveVisualizer(
+            output_dir=experiment_dir,
+            experiment_name=args.name
+        )
+        
+        # Prepare experiment data for visualization
+        experiment_data = experiment.results.copy()
+        experiment_data['optimizer_type'] = args.optimizer
+        experiment_data['model_config'] = model_config
+        
+        # Add architecture-specific data if available
+        if hasattr(experiment, 'architecture_visualization_data'):
+            experiment_data.update(experiment.architecture_visualization_data)
+        
+        # Prepare additional data sources
+        additional_data = {
+            'optimizer': experiment.optimizer,
+            'model': experiment.model
+        }
+        
+        # Generate all appropriate visualizations
+        generated_visualizations = visualizer.generate_all_visualizations(
+            experiment_data, 
+            additional_data
+        )
+        
+        # Log visualization summary
+        viz_summary = visualizer.get_visualization_summary()
+        logger.info(f"Generated {viz_summary['total_visualizations']} visualizations:")
+        for category, count in viz_summary['by_category'].items():
+            if count > 0:
+                logger.info(f"  {category}: {count} visualizations")
+        
+    except Exception as e:
+        logger.error(f"Error generating adaptive visualizations: {e}")
+        # Fallback to basic visualization
+        create_training_report(experiment, experiment_dir)
     
     logger.info(f"Experiment completed. Results saved to {experiment_dir}")
 

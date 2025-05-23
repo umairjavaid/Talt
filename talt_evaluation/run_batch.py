@@ -193,6 +193,34 @@ def main():
     successful_exps = sum(1 for result in batch_summary['results'] if result['success'])
     logger.info(f"Batch completed: {successful_exps}/{len(experiment_cmds)} experiments succeeded")
     logger.info(f"Batch results saved to {batch_output_dir}")
+    
+    # Generate comprehensive batch visualization analysis
+    if successful_exps > 0:
+        try:
+            from talt_evaluation.visualization import AdaptiveVisualizer
+            
+            # Create batch-level adaptive visualizer
+            batch_visualizer = AdaptiveVisualizer(
+                output_dir=batch_output_dir,
+                experiment_name=f"batch_{batch_name}"
+            )
+            
+            # Prepare batch experiment data
+            batch_experiment_data = {
+                'batch_results': batch_summary,
+                'has_batch_data': True,
+                'experiments': batch_config['experiments']
+            }
+            
+            # Generate batch-level visualizations
+            batch_viz = batch_visualizer.generate_all_visualizations(batch_experiment_data)
+            
+            viz_summary = batch_visualizer.get_visualization_summary()
+            logger.info(f"Generated batch analysis with {viz_summary['total_visualizations']} visualizations")
+            
+        except Exception as e:
+            logger.error(f"Error generating batch visualizations: {e}")
+            logger.debug(f"Batch visualization error details: {e}")
 
 if __name__ == "__main__":
     main()

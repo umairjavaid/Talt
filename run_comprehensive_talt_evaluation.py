@@ -433,7 +433,7 @@ class ComprehensiveTALTEvaluator:
         """Generate comprehensive analysis using existing visualization framework."""
         logger.info("Generating comprehensive analysis...")
         
-        # Import the results aggregator
+        # Import the results aggregator and adaptive visualizer
         try:
             # Add talt_evaluation to path
             talt_eval_path = str(Path.cwd() / "talt_evaluation")
@@ -441,7 +441,7 @@ class ComprehensiveTALTEvaluator:
                 sys.path.insert(0, talt_eval_path)
                 
             from analysis.results_aggregator import ResultsAggregator
-            from visualization.comprehensive_analysis import CrossExperimentAnalyzer
+            from visualization.adaptive_visualizer import AdaptiveVisualizer
         except ImportError as e:
             logger.error(f"Failed to import analysis modules: {e}")
             return
@@ -450,32 +450,54 @@ class ComprehensiveTALTEvaluator:
         analysis_dir = self.results_dir / "analysis"
         analysis_dir.mkdir(exist_ok=True)
         
+        # Create comprehensive adaptive visualizer
+        comprehensive_visualizer = AdaptiveVisualizer(
+            output_dir=analysis_dir,
+            experiment_name="comprehensive_evaluation"
+        )
+        
         # Aggregate results from all experiments
-        aggregator = ResultsAggregator(self.results_dir)
-        all_results_df = aggregator.aggregate_all_results()
+        try:
+            aggregator = ResultsAggregator(self.results_dir)
+            all_results_df = aggregator.aggregate_all_results()
+            
+            # Save the aggregated results
+            all_results_df.to_csv(analysis_dir / "all_results.csv", index=False)
+            
+            # Generate statistical summary
+            stats_summary = aggregator.generate_statistical_summary()
+            with open(analysis_dir / "statistical_summary.json", "w") as f:
+                json.dump(stats_summary, f, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Error aggregating results: {e}")
+            # Create minimal data for visualization
+            all_results_df = None
+            stats_summary = {}
         
-        # Save the aggregated results
-        all_results_df.to_csv(analysis_dir / "all_results.csv", index=False)
+        # Prepare comprehensive experiment data
+        comprehensive_data = {
+            'has_batch_data': True,
+            'has_comparison_data': True,
+            'configurations': self.experiments_run,
+            'optimizer_types': ['talt', 'sgd', 'adam'],  # Common optimizers
+            'architecture_types': ['cnn', 'transformer']
+        }
         
-        # Generate statistical summary
-        stats_summary = aggregator.generate_statistical_summary()
-        with open(analysis_dir / "statistical_summary.json", "w") as f:
-            json.dump(stats_summary, f, indent=2)
+        if all_results_df is not None:
+            comprehensive_data['aggregated_results'] = all_results_df.to_dict('records')
+            comprehensive_data['statistical_summary'] = stats_summary
         
-        # Generate cross-experiment visualizations
-        analyzer = CrossExperimentAnalyzer(self.results_dir)
-        
-        # Create optimizer performance matrix
-        analyzer.generate_optimizer_performance_matrix(output_file=analysis_dir / "optimizer_performance.png")
-        
-        # Analyze convergence patterns
-        analyzer.analyze_convergence_patterns(output_dir=analysis_dir)
-        
-        # Generate efficiency analysis
-        analyzer.generate_efficiency_analysis(output_file=analysis_dir / "efficiency_analysis.png")
-        
-        # Generate comprehensive report
-        self._generate_report(analysis_dir, all_results_df, stats_summary)
+        # Generate comprehensive visualizations
+        try:
+            comprehensive_viz = comprehensive_visualizer.generate_all_visualizations(comprehensive_data)
+            
+            viz_summary = comprehensive_visualizer.get_visualization_summary()
+            logger.info(f"Generated comprehensive analysis with {viz_summary['total_visualizations']} visualizations")
+            
+        except Exception as e:
+            logger.error(f"Error generating comprehensive visualizations: {e}")
+            logger.debug(traceback.format_exc())
         
         logger.info(f"Comprehensive analysis completed and saved to {analysis_dir}")
         
