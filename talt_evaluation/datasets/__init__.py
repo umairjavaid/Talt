@@ -1,47 +1,45 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .cifar import get_cifar_dataset
+import os
+import sys
+from pathlib import Path
 
-# Wrapper functions for specific CIFAR datasets
-def get_cifar10_dataset(batch_size=128, num_workers=4, root="./data", transform=None):
-    """Get CIFAR-10 dataset"""
-    return get_cifar_dataset(num_classes=10, root=root, transform=transform, 
-                           batch_size=batch_size, num_workers=num_workers)
+# Add current directory to path for relative imports
+current_dir = Path(__file__).parent
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
 
-def get_cifar100_dataset(batch_size=128, num_workers=4, root="./data", transform=None):
-    """Get CIFAR-100 dataset"""
-    return get_cifar_dataset(num_classes=100, root=root, transform=transform, 
-                           batch_size=batch_size, num_workers=num_workers)
+try:
+    from .cifar import get_cifar10, get_cifar100
+    from .glue import get_glue_sst2
+except ImportError:
+    # Fallback for direct execution
+    try:
+        from cifar import get_cifar10, get_cifar100
+        from glue import get_glue_sst2
+    except ImportError as e:
+        import warnings
+        warnings.warn(f"Could not import dataset modules: {e}")
+        # Provide dummy functions
+        def get_cifar10(*args, **kwargs):
+            raise NotImplementedError("CIFAR10 dataset not available")
+        def get_cifar100(*args, **kwargs):
+            raise NotImplementedError("CIFAR100 dataset not available")
+        def get_glue_sst2(*args, **kwargs):
+            raise NotImplementedError("GLUE SST-2 dataset not available")
 
-# Main entry point for getting datasets
 def get_dataset(dataset_name, **kwargs):
-    """
-    Get dataset loader based on dataset name
+    """Get dataset loaders by name."""
+    dataset_name = dataset_name.lower()
     
-    Args:
-        dataset_name: Name of the dataset (cifar10, cifar100, glue, etc.)
-        **kwargs: Additional arguments to pass to the dataset loader
-    
-    Returns:
-        tuple: (train_loader, val_loader, test_loader)
-    """
-    if dataset_name.lower() == "cifar10":
-        return get_cifar10_dataset(**kwargs)
-    elif dataset_name.lower() == "cifar100":
-        return get_cifar100_dataset(**kwargs)
-    elif dataset_name.lower().startswith("glue"):
-        try:
-            from .glue import get_glue_dataset
-            return get_glue_dataset(dataset_name, **kwargs)
-        except ImportError:
-            raise ImportError("GLUE dataset support requires additional dependencies")
+    if dataset_name == "cifar10":
+        return get_cifar10(**kwargs)
+    elif dataset_name == "cifar100":
+        return get_cifar100(**kwargs)
+    elif dataset_name == "glue-sst2":
+        return get_glue_sst2(**kwargs)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
-__all__ = [
-    "get_dataset",
-    "get_cifar10_dataset",
-    "get_cifar100_dataset",
-    "get_cifar_dataset",
-]
+__all__ = ["get_dataset", "get_cifar10", "get_cifar100", "get_glue_sst2"]

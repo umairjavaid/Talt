@@ -111,3 +111,36 @@ def get_cifar_dataset(num_classes, root="./data", transform=None, batch_size=128
     )
     
     return trainloader, valloader, testloader
+
+def get_cifar10(batch_size=128, num_workers=4, root="./data"):
+    """
+    Get CIFAR-10 dataset with standard data augmentations.
+    
+    Args:
+        batch_size: Batch size for data loaders
+        num_workers: Number of workers for data loading
+        root: Root directory for the dataset
+    
+    Returns:
+        tuple: (train_loader, val_loader, test_loader)
+    """
+    return get_cifar_dataset(
+        num_classes=10, 
+        root=root, 
+        batch_size=batch_size, 
+        num_workers=num_workers
+    )
+
+def get_cifar100(batch_size=128, num_workers=4, root="./data"):
+    """
+    Get CIFAR-100 dataset with standard data augmentations.
+    
+    Args:
+        batch_size: Batch size for data loaders
+        num_workers: Number of workers for data loading
+        root: Root directory for the dataset
+    
+    Returns:
+        tuple: (train_loader, val_loader, test_loader)
+    """
+    return get_cifar_dataset(

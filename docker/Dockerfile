@@ -8,7 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Set environment variables for reproducible results
 ENV PYTHONHASHSEED=42
-ENV CUDA_VISIBLE_DEVICES=""
+
+# FIXED: Enable CUDA instead of disabling it
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENV CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+# Remove the tokenizers warning
 ENV TOKENIZERS_PARALLELISM=false
 
 # Install additional system dependencies not in base image
@@ -33,14 +39,15 @@ RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 # Copy TALT source code
 COPY . .
 
-# Install TALT package in editable mode
-RUN pip install -e .
-
 # Create directories for data, results, and configs
 RUN mkdir -p /app/data /app/results /app/logs /app/checkpoints
 
-# Set Python path
-ENV PYTHONPATH=/app
+# Set Python path to include both the app directory and talt_evaluation
+ENV PYTHONPATH=/app:/app/talt_evaluation
+
+# Create __init__.py files if they don't exist to make directories Python packages
+RUN touch /app/__init__.py
+RUN if [ ! -f /app/talt_evaluation/__init__.py ]; then touch /app/talt_evaluation/__init__.py; fi
 
 # Default command - show help
 CMD ["python", "run_experiments.py", "--help"]

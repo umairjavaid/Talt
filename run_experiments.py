@@ -50,26 +50,36 @@ def run_single_experiment(args):
     cmd_str = " ".join(cmd)
     logger.info(f"Running command: {cmd_str}")
     
-    # Run the experiment
-    process = subprocess.Popen(
-        cmd_str,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True
-    )
+    # Ensure we're in the correct working directory
+    original_cwd = os.getcwd()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
     
-    # Print output in real-time
-    for line in process.stdout:
-        print(line, end='')
-    
-    # Wait for the process to complete
-    process.wait()
-    
-    if process.returncode == 0:
-        logger.info("Experiment completed successfully!")
-    else:
-        logger.error(f"Experiment failed with return code {process.returncode}")
+    try:
+        # Run the experiment
+        process = subprocess.Popen(
+            cmd_str,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            cwd=script_dir
+        )
+        
+        # Print output in real-time
+        for line in process.stdout:
+            print(line, end='')
+        
+        # Wait for the process to complete
+        process.wait()
+        
+        if process.returncode == 0:
+            logger.info("Experiment completed successfully!")
+        else:
+            logger.error(f"Experiment failed with return code {process.returncode}")
+    finally:
+        # Restore original working directory
+        os.chdir(original_cwd)
 
 def run_batch_experiments(args):
     """Run a batch of experiments with the specified config file."""

@@ -20,18 +20,51 @@ project_root = os.path.abspath(os.path.join(script_dir, '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Import project modules
+# Also add the talt_evaluation directory to path
+talt_eval_dir = os.path.dirname(script_path)
+if talt_eval_dir not in sys.path:
+    sys.path.insert(0, talt_eval_dir)
+
+# Import project modules with better error handling
 try:
-    from talt_evaluation.datasets import get_dataset
-    from talt_evaluation.architectures import get_architecture
-    from talt_evaluation.hyperparameter_tuning import TaltTuner
-    from talt_evaluation.visualization import create_training_report
-    from talt_evaluation.experiments import Experiment
+    # Try relative imports first
+    try:
+        from .datasets import get_dataset
+        from .models import get_architecture
+        from .hyperparameter_tuning import TaltTuner
+        from .visualization import create_training_report
+        from .experiments import Experiment
+    except ImportError:
+        # Fallback to direct imports
+        from datasets import get_dataset
+        from models import get_architecture
+        from hyperparameter_tuning import TaltTuner
+        from visualization import create_training_report
+        from experiments import Experiment
 except ImportError as e:
-    missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
-    print(f"Error: Missing required module '{missing_module}'. Please install with: pip install {missing_module}")
-    print(f"Full error: {e}")
-    sys.exit(1)
+    # Try importing from talt_evaluation package
+    try:
+        from talt_evaluation.datasets import get_dataset
+        from talt_evaluation.models import get_architecture
+        from talt_evaluation.hyperparameter_tuning import TaltTuner
+        from talt_evaluation.visualization import create_training_report
+        from talt_evaluation.experiments import Experiment
+    except ImportError as e2:
+        missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
+        print(f"Error: Missing required module '{missing_module}'. Please check your installation.")
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Script directory: {script_dir}")
+        print(f"Project root: {project_root}")
+        print(f"Python path: {sys.path}")
+        print(f"Primary error: {e}")
+        print(f"Secondary error: {e2}")
+        
+        # List available files for debugging
+        print("\nAvailable files in talt_evaluation directory:")
+        for file in os.listdir(talt_eval_dir):
+            print(f"  {file}")
+        
+        sys.exit(1)
 
 # Configure logging
 logging.basicConfig(

@@ -435,9 +435,13 @@ class ComprehensiveTALTEvaluator:
         
         # Import the results aggregator
         try:
-            sys.path.insert(0, str(Path.cwd()))
-            from talt_evaluation.analysis.results_aggregator import ResultsAggregator
-            from talt_evaluation.visualization.comprehensive_analysis import CrossExperimentAnalyzer
+            # Add talt_evaluation to path
+            talt_eval_path = str(Path.cwd() / "talt_evaluation")
+            if talt_eval_path not in sys.path:
+                sys.path.insert(0, talt_eval_path)
+                
+            from analysis.results_aggregator import ResultsAggregator
+            from visualization.comprehensive_analysis import CrossExperimentAnalyzer
         except ImportError as e:
             logger.error(f"Failed to import analysis modules: {e}")
             return
