@@ -16,18 +16,12 @@ services:
       - PYTHONHASHSEED=42
       - TOKENIZERS_PARALLELISM=false
     
-    # Port mapping for Jupyter
-    ports:
-      - "8888:8888"
-      - "6006:6006"  # TensorBoard
-    
     # Volume mounts
     volumes:
       - ./results:/app/results
       - ./data:/app/data
       - ./logs:/app/logs
       - ./checkpoints:/app/checkpoints
-      - ./notebooks:/app/notebooks
     
     # Working directory
     working_dir: /app
@@ -35,22 +29,6 @@ services:
     # Keep container running
     stdin_open: true
     tty: true
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "python", "-c", "import talt; print('OK')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # Jupyter service
-  jupyter:
-    extends: talt
-    container_name: talt-jupyter
-    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
-    ports:
-      - "8888:8888"
 
   # CPU-only version
   talt-cpu:

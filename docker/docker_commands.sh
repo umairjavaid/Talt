@@ -15,12 +15,11 @@ echo -e "${BLUE}TALT Docker Management Script${NC}"
 
 # Function to print usage
 usage() {
-    echo "Usage: $0 {build|run|jupyter|batch|comprehensive|shell|clean|logs}"
+    echo "Usage: $0 {build|run|batch|comprehensive|shell|clean|logs}"
     echo ""
     echo "Commands:"
     echo "  build         - Build the TALT Docker image"
     echo "  run           - Run a single experiment"
-    echo "  jupyter       - Start Jupyter Lab server"
     echo "  batch         - Run batch experiments"
     echo "  comprehensive - Run comprehensive evaluation"
     echo "  shell         - Start interactive shell in container"
@@ -30,7 +29,6 @@ usage() {
     echo "Examples:"
     echo "  $0 build"
     echo "  $0 run --architecture resnet18 --dataset cifar10 --optimizer talt"
-    echo "  $0 jupyter"
     echo "  $0 batch --config talt_evaluation/batch_configs/cnn_comparison.json"
 }
 
@@ -48,17 +46,6 @@ run_experiment() {
         -v $(pwd)/results:/app/results \
         -v $(pwd)/data:/app/data \
         talt:latest python run_experiments.py single "$@"
-}
-
-# Function to start Jupyter
-start_jupyter() {
-    echo -e "${YELLOW}Starting Jupyter Lab...${NC}"
-    echo -e "${BLUE}Jupyter will be available at: http://localhost:8888${NC}"
-    docker run --rm --gpus all -p 8888:8888 \
-        -v $(pwd)/results:/app/results \
-        -v $(pwd)/data:/app/data \
-        -v $(pwd)/notebooks:/app/notebooks \
-        talt:latest jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
 }
 
 # Function to run batch experiments
@@ -103,7 +90,7 @@ show_logs() {
 }
 
 # Create necessary directories
-mkdir -p results data logs checkpoints notebooks
+mkdir -p results data logs checkpoints
 
 # Main command handling
 case "$1" in
@@ -113,9 +100,6 @@ case "$1" in
     run)
         shift
         run_experiment "$@"
-        ;;
-    jupyter)
-        start_jupyter
         ;;
     batch)
         shift

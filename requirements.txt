@@ -32,13 +32,6 @@ gpustat>=1.0.0
 pillow>=9.0.0
 opencv-python>=4.5.0
 
-# Jupyter ecosystem
-jupyter>=1.0.0
-jupyterlab>=3.4.0
-notebook>=6.4.0
-ipywidgets>=7.7.0
-nbconvert>=6.5.0
-
 # Experiment tracking
 tensorboard>=2.9.0
 wandb>=0.13.0

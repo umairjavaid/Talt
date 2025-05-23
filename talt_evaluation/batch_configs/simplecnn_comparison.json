@@ -1,0 +1,37 @@
+{
+  "description": "Quick TALT vs SGD pipeline test with SimpleCNN on CIFAR-10",
+  "experiments": [
+    {
+      "name": "pipeline_test_talt",
+      "architecture": "simplecnn",
+      "dataset": "cifar10",
+      "optimizer": "talt",
+      "epochs": 3,
+      "batch-size": 64,
+      "lr": 0.01,
+      "mixed-precision": true,
+      "save-checkpoints": true,
+      "checkpoint-interval": 2,
+      "projection-dim": 16,
+      "valley-strength": 0.15,
+      "smoothing-factor": 0.3,
+      "update-interval": 25,
+      "memory-size": 6,
+      "grad-store-interval": 5
+    },
+    {
+      "name": "pipeline_test_sgd",
+      "architecture": "simplecnn",
+      "dataset": "cifar10",
+      "optimizer": "sgd",
+      "epochs": 3,
+      "batch-size": 64,
+      "lr": 0.01,
+      "momentum": 0.9,
+      "weight-decay": 5e-4,
+      "mixed-precision": true,
+      "save-checkpoints": true,
+      "checkpoint-interval": 2
+    }
+  ]
+}
