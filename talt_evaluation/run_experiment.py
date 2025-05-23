@@ -108,7 +108,7 @@ def parse_args():
                         choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base', 'simplecnn'],
                         help='Neural network architecture')
     parser.add_argument('--dataset', type=str, required=True, 
-                        choices=['cifar10', 'cifar100', 'glue-sst2'],
+                        choices=['cifar10', 'cifar100', 'glue-sst2', 'mnist'],
                         help='Dataset to use for training and evaluation')
     parser.add_argument('--optimizer', type=str, required=True, 
                         choices=['talt', 'sgd', 'adam'],

@@ -541,6 +541,43 @@ class ImprovedTALTOptimizer:
             if param_name in self._visualization_data['gradient_stats']:
                 del self._visualization_data['gradient_stats'][param_name]
 
+    def _print_progress(self, loss_value: float, timings: dict) -> None:
+        """Print training progress information."""
+        total_time = sum(timings.values())
+        print(f"Step {self.steps}: Loss = {loss_value:.6f}, Total time = {total_time:.3f}s")
+        
+        # Optional: Print detailed timings
+        if self.steps % 100 == 0:
+            for phase, time_val in timings.items():
+                print(f"  {phase}: {time_val:.3f}s ({time_val/total_time*100:.1f}%)")
+
+    def _cleanup_memory(self) -> None:
+        """Periodic memory cleanup to prevent memory leaks."""
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def get_visualization_data(self):
+        """Get visualization data for external analysis."""
+        return {
+            'loss_values': list(self._visualization_data['loss_values']),
+            'valley_detections': list(self._visualization_data['valley_detections']),
+            'bifurcations': list(self.bifurcations),
+            'gradient_stats': {
+                name: list(stats) for name, stats in self._visualization_data['gradient_stats'].items()
+            }
+        }
+
+    @property
+    def param_groups(self):
+        """Access to underlying optimizer's parameter groups."""
+        return self.optimizer.param_groups
+
+    def zero_grad(self, set_to_none: bool = False):
+        """Zero gradients of the base optimizer for PyTorch compatibility."""
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
     def _update_topology_async(self) -> None:
         """Update topology asynchronously with proper thread safety."""
         with self._state_lock:

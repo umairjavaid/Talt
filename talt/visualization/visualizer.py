@@ -289,104 +289,73 @@ class TALTVisualizer:
     def visualize_gradient_transformations(self,
                                          save_path: Optional[str] = None,
                                          show: bool = True) -> None:
-        """Visualize gradient transformations with bifurcation points, using stored grad_memory."""
-        if not self._check_matplotlib(): return
-        grad_memory = self.data.get('grad_memory_for_transformations', {})
-        if not grad_memory:
-            logger.info("No gradient memory data available for visualizing transformations.")
+        """Visualize gradient transformations over time."""
+        if not hasattr(self, 'data') or 'grad_memory' not in self.data:
+            print("No gradient transformation data available")
             return
-
-        weight_params = [n for n in grad_memory if ".weight" in n and grad_memory[n]]
-        bias_params = [n for n in grad_memory if ".bias" in n and grad_memory[n]]
+            
+        import matplotlib.pyplot as plt
         
-        if not weight_params and not bias_params:
-            logger.info("No weight or bias parameters with stored gradients found.")
-            return
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        fig.suptitle("Gradient Transformations Analysis")
+        
+        # Plot gradient norms for different parameters
+        for i, (param_name, grad_data) in enumerate(self.data['grad_memory'].items()):
+            if i >= 4:  # Limit to 4 parameters
+                break
+            ax = axes[i // 2, i % 2]
             
-        fig, axes = plt.subplots(2, 1, figsize=(14, 10), squeeze=False) # Ensure axes is 2D
-        axes = axes.flatten()
-
-        param_groups = [(weight_params, "Weight Gradients"), (bias_params, "Bias Gradients")]
-        first_bif_label_grad = True
-
-        for ax_idx, (params_to_plot, label_prefix) in enumerate(param_groups):
-            ax = axes[ax_idx]
-            if not params_to_plot:
-                ax.text(0.5, 0.5, f"No {label_prefix.lower().split()[0]} data", ha='center', va='center')
-                ax.set_title(f"{label_prefix} (No Data)")
-                continue
-            
-            plotted_on_ax = False
-            for name in params_to_plot:
-                # grad_memory[name] is a list of (step, grad_projection_norm, original_grad_norm)
-                if not grad_memory[name]: continue # Skip if no data for this param
-                steps = [item[0] for item in grad_memory[name]]
-                transformed_norms = [item[1] for item in grad_memory[name]]
-                original_norms = [item[2] for item in grad_memory[name]]
-
-                ax.plot(steps, original_norms, '--', alpha=0.7, label=f'{name} (Orig.)')
-                ax.plot(steps, transformed_norms, label=f'{name} (Trans.)')
-                plotted_on_ax = True
-
-            for bif_step in self.data.get('bifurcations', []):
-                ax.axvline(x=bif_step, color='purple', linestyle=':', linewidth=2, label='Bifurcation' if first_bif_label_grad else None)
-                first_bif_label_grad = False
-
-            ax.set_title(f"{label_prefix} - Norms Before and After Transformation")
-            ax.set_xlabel("Training Step")
-            ax.set_ylabel("Gradient Norm")
-            if plotted_on_ax or self.data.get('bifurcations', []): ax.legend(loc='upper right', fontsize='small')
+            steps, norms, _ = zip(*grad_data) if grad_data else ([], [], [])
+            ax.plot(steps, norms, label=f'{param_name} grad norm')
+            ax.set_title(f"Gradient Norm: {param_name}")
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Norm")
             ax.grid(True, alpha=0.3)
-            
+        
         plt.tight_layout()
         if save_path:
-            plt.savefig(os.path.join(self.output_dir, save_path))
-            logger.info(f"Gradient transformations plot saved to {os.path.join(self.output_dir, save_path)}")
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
         if show:
             plt.show()
         plt.close()
-    
+
     def visualize_loss_landscape_with_valleys(self,
                                             save_path: Optional[str] = None,
                                             show: bool = True) -> None:
-        """Plot loss with valley detection markers, using stored loss history and bifurcations."""
-        if not self._check_matplotlib(): return
-        loss_history = self.data.get('loss_history_for_landscape', [])
-        if not loss_history: # Fallback to loss_values if specific history isn't there
-            loss_history = list(self.data['loss_values'])
-        
-        if not loss_history:
-            logger.info("No loss history available for landscape visualization.")
+        """Visualize loss landscape with valley/bifurcation detections."""
+        if not hasattr(self, 'data') or 'loss_history' not in self.data:
+            print("No loss history data available")
             return
             
-        plt.figure() # New figure
-        plt.plot(loss_history, label="Loss")
+        import matplotlib.pyplot as plt
         
-        # Use bifurcations as proxy for valley detections if valley_detections is empty
+        loss_history = self.data.get('loss_history', [])
         detection_points = self.data.get('valley_detections', [])
-        detection_label_prefix = "Valley"
-        if not detection_points: # If no valley_detections, use bifurcations
-            detection_points = self.data.get('bifurcations', [])
-            detection_label_prefix = "Bifurcation"
-
-        first_detection_labeled = True
+        
+        if not loss_history:
+            print("No loss history to plot")
+            return
+            
+        plt.figure(figsize=(10, 6))
+        plt.plot(loss_history, 'b-', label='Loss', linewidth=1.5)
+        
+        # Mark valley detections
+        first_detection_labeled = False
         for step in detection_points:
             if step < len(loss_history):
-                label = f"{detection_label_prefix} Detection" if first_detection_labeled else None
-                first_detection_labeled = False
-                plt.axvline(x=step, color='red', linestyle='--', linewidth=1.5, alpha=0.8, label=label)
-                plt.scatter(step, loss_history[step], color='red', marker='o', s=50, zorder=5) # Mark point on loss curve
+                label = 'Valley Detection' if not first_detection_labeled else None
+                plt.axvline(x=step, color='red', linestyle='--', alpha=0.7, label=label)
+                first_detection_labeled = True
                 
         plt.title("Loss Landscape with Valley/Bifurcation Detections")
         plt.xlabel("Training Step")
         plt.ylabel("Loss")
-        if first_detection_labeled == False or len(loss_history) > 0:
-             plt.legend()
+        if first_detection_labeled or len(loss_history) > 0:
+            plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         if save_path:
-            plt.savefig(os.path.join(self.output_dir, save_path))
-            logger.info(f"Loss landscape plot saved to {os.path.join(self.output_dir, save_path)}")
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
         if show:
             plt.show()
         plt.close()
@@ -468,31 +437,30 @@ class TALTVisualizer:
 
             # Generate and embed plots
             if 'loss_trajectory' in include_plots:
-                loss_traj_path = f"{experiment_name}_loss_trajectory.png"
-                self.visualize_loss_trajectory(save_path=loss_traj_path, show=False)
-                if os.path.exists(os.path.join(self.output_dir, loss_traj_path)):
-                    f.write(f"<h2>Loss Trajectory</h2><img src='{loss_traj_path}' alt='Loss Trajectory'><br>")
+                loss_path = f"{experiment_name}_loss_trajectory.png"
+                self.visualize_loss_trajectory(save_path=loss_path, show=False)
+                if os.path.exists(os.path.join(self.output_dir, loss_path)):
+                    f.write(f'<h2>Loss Trajectory</h2><img src="{loss_path}" alt="Loss Trajectory"><br>')
 
             if 'loss_landscape_with_valleys' in include_plots:
                 loss_land_path = f"{experiment_name}_loss_landscape.png"
                 self.visualize_loss_landscape_with_valleys(save_path=loss_land_path, show=False)
                 if os.path.exists(os.path.join(self.output_dir, loss_land_path)):
-                    f.write(f"<h2>Loss Landscape with Detections</h2><img src='{loss_land_path}' alt='Loss Landscape'><br>")
+                    f.write(f'<h2>Loss Landscape with Valleys</h2><img src="{loss_land_path}" alt="Loss Landscape"><br>')
             
             if 'gradient_transformations' in include_plots:
                 grad_trans_path = f"{experiment_name}_grad_transformations.png"
                 self.visualize_gradient_transformations(save_path=grad_trans_path, show=False)
                 if os.path.exists(os.path.join(self.output_dir, grad_trans_path)):
-                    f.write(f"<h2>Gradient Transformations</h2><img src='{grad_trans_path}' alt='Gradient Transformations'><br>")
+                    f.write(f'<h2>Gradient Transformations</h2><img src="{grad_trans_path}" alt="Gradient Transformations"><br>')
 
-            if 'eigenvalue_spectra' in include_plots and self.data['eigenvalues_history']:
-                 # Plot for the first parameter group with eigenvalue data, or all if fewer than 3.
+            if 'eigenvalue_spectra' in include_plots and self.data.get('eigenvalues_history'):
+                eigen_path = f"{experiment_name}_eigenvalues.png"
                 param_to_plot = next(iter(self.data['eigenvalues_history']), None)
                 if param_to_plot:
-                    eig_spec_path = f"{experiment_name}_eigenvalue_spectra.png"
-                    self.visualize_eigenvalue_spectra(parameter_name=None, save_path=eig_spec_path, show=False) # Plot all (up to 3 subplots)
-                    if os.path.exists(os.path.join(self.output_dir, eig_spec_path)):
-                        f.write(f"<h2>Eigenvalue Spectra</h2><img src='{eig_spec_path}' alt='Eigenvalue Spectra'><br>")
+                    self.visualize_eigenvalue_spectra(param_names=[param_to_plot], save_path=eigen_path, show=False)
+                    if os.path.exists(os.path.join(self.output_dir, eigen_path)):
+                        f.write(f'<h2>Eigenvalue Spectra</h2><img src="{eigen_path}" alt="Eigenvalue Spectra"><br>')
             
             f.write("</body></html>")
         logger.info(f"Report generated at {report_path}")

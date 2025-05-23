@@ -81,7 +81,26 @@ def get_architecture(architecture_name, dataset="cifar10", **kwargs):
     else:
         raise ValueError(f"Unknown architecture: {architecture_name}")
 
+def get_dataset(dataset_name, **kwargs):
+    """
+    Get dataset loader by name.
+    
+    Args:
+        dataset_name (str): Name of the dataset (e.g., "cifar10", "mnist").
+        **kwargs: Additional arguments for the dataset loader.
+        
+    Returns:
+        tuple: (train_loader, val_loader, test_loader)
+    """
+    if dataset_name.lower() == "mnist":
+        from talt_evaluation.datasets.cifar import get_mnist
+        return get_mnist(**kwargs)
+    # Add other datasets here as needed
+    else:
+        raise ValueError(f"Unknown dataset: {dataset_name}")
+
 __all__ = ["get_architecture", 
            "SimpleCNN", "ResNetModel", "get_resnet", 
            "VGGModel", "get_vgg", "EfficientNetModel", "get_efficientnet",
-           "BERTModel", "get_bert"]
+           "BERTModel", "get_bert",
+           "get_dataset"]

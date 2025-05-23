@@ -138,10 +138,10 @@ def main():
     # Basic experiment configuration
     single_parser.add_argument('--name', type=str, default='experiment', help='Experiment name')
     single_parser.add_argument('--architecture', type=str, required=True, 
-                              choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base'],
+                              choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base', 'simplecnn'],
                               help='Neural network architecture')
     single_parser.add_argument('--dataset', type=str, required=True, 
-                              choices=['cifar10', 'cifar100', 'glue-sst2'],
+                              choices=['cifar10', 'cifar100', 'glue-sst2', 'mnist'],
                               help='Dataset to use for training and evaluation')
     single_parser.add_argument('--optimizer', type=str, required=True, 
                               choices=['talt', 'sgd', 'adam'],
@@ -161,6 +161,14 @@ def main():
     # Hardware configuration
     single_parser.add_argument('--gpu-index', type=int, default=0, help='GPU index')
     single_parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
+    
+    # TALT-specific parameters
+    single_parser.add_argument('--projection-dim', type=int, default=16, help='TALT projection dimension')
+    single_parser.add_argument('--memory-size', type=int, default=8, help='TALT memory size')
+    single_parser.add_argument('--update-interval', type=int, default=25, help='TALT update interval')
+    single_parser.add_argument('--valley-strength', type=float, default=0.15, help='TALT valley strength')
+    single_parser.add_argument('--smoothing-factor', type=float, default=0.3, help='TALT smoothing factor')
+    single_parser.add_argument('--grad-store-interval', type=int, default=5, help='TALT gradient store interval')
     
     # Create the parser for the "batch" command
     batch_parser = subparsers.add_parser('batch', help='Run a batch of experiments')

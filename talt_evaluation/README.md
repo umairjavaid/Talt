@@ -6,9 +6,9 @@ This framework provides a comprehensive testing environment to evaluate the perf
 
 The TALT Evaluation Framework allows systematic comparison between TALT and standard optimizers (SGD, Adam) across:
 
-- **CNN Architectures**: ResNet (18, 50), VGG16, EfficientNet-B0
+- **CNN Architectures**: ResNet (18, 50), VGG16, EfficientNet-B0, SimpleCNN
 - **LLM Architecture**: BERT-base
-- **Datasets**: CIFAR10, CIFAR100, GLUE SST-2
+- **Datasets**: CIFAR10, CIFAR100, GLUE SST-2, MNIST
 
 ## Features
 

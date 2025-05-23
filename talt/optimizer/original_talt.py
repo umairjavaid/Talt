@@ -340,3 +340,18 @@ class TALTOptimizer:
         # Clear memory
         self.grad_memory.clear()
         self._visualization_data.clear()
+
+    def get_visualization_data(self):
+        """Get visualization data for external analysis."""
+        return {
+            'loss_values': self._visualization_data['loss_values'],
+            'bifurcation_points': self._visualization_data['bifurcation_points'],
+            'eigenvalues': self._visualization_data['eigenvalues'],
+            'bifurcations': self.bifurcations,
+            'loss_history': self.loss_history
+        }
+
+    def _print_progress(self, loss_value: float, step: int) -> None:
+        """Print training progress information."""
+        if step % 10 == 0 or step == 1:
+            print(f"Step {step}: Loss = {loss_value:.6f}")

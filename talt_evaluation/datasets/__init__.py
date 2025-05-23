@@ -11,23 +11,30 @@ if str(current_dir) not in sys.path:
     sys.path.insert(0, str(current_dir))
 
 from .cifar import get_cifar10, get_cifar100
-try:
-    from .glue import get_glue_sst2
-except ImportError:
-    def get_glue_sst2(*args, **kwargs):
-        raise NotImplementedError("GLUE SST-2 dataset not available")
+from .mnist_loader import get_mnist
 
-def get_dataset(dataset_name, **kwargs):
-    """Get dataset loaders by name."""
-    dataset_name = dataset_name.lower()
+def get_dataset(dataset_name, batch_size=128, num_workers=4, root="./data"):
+    """
+    Get dataset loader by name.
     
-    if dataset_name == "cifar10":
-        return get_cifar10(**kwargs)
-    elif dataset_name == "cifar100":
-        return get_cifar100(**kwargs)
-    elif dataset_name == "glue-sst2":
-        return get_glue_sst2(**kwargs)
+    Args:
+        dataset_name (str): Name of the dataset
+        batch_size (int): Batch size for data loaders
+        num_workers (int): Number of workers for data loading
+        root (str): Root directory for the dataset
+        
+    Returns:
+        tuple: (train_loader, val_loader, test_loader)
+    """
+    dataset_lower = dataset_name.lower()
+    
+    if dataset_lower == "cifar10":
+        return get_cifar10(batch_size=batch_size, num_workers=num_workers, root=root)
+    elif dataset_lower == "cifar100":
+        return get_cifar100(batch_size=batch_size, num_workers=num_workers, root=root)
+    elif dataset_lower == "mnist":
+        return get_mnist(batch_size=batch_size, num_workers=num_workers, data_dir=root)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
-__all__ = ["get_dataset", "get_cifar10", "get_cifar100", "get_glue_sst2"]
+__all__ = ['get_dataset', 'get_cifar10', 'get_cifar100', 'get_mnist']
