@@ -569,14 +569,66 @@ class ImprovedTALTOptimizer:
 
     def get_visualization_data(self):
         """Get visualization data for external analysis."""
-        return {
+        viz_data = {
             'loss_values': list(self._visualization_data['loss_values']),
+            'loss_history': list(self.loss_history),
             'valley_detections': list(self._visualization_data['valley_detections']),
             'bifurcations': list(self.bifurcations),
-            'gradient_stats': {
-                name: list(stats) for name, stats in self._visualization_data['gradient_stats'].items()
-            }
+            'gradient_stats': {},
+            'eigenvalues_history': {},
+            'gradient_norms_history': {}
         }
+        
+        # Process gradient stats to extract eigenvalues and norms
+        for name, stats_deque in self._visualization_data['gradient_stats'].items():
+            if len(stats_deque) > 0:
+                stats_list = list(stats_deque)
+                viz_data['gradient_stats'][name] = stats_list
+                
+                # Extract eigenvalues and gradient norms for easier access
+                eigenvals = []
+                grad_norms = []
+                steps = []
+                
+                for stat_entry in stats_list:
+                    if isinstance(stat_entry, dict):
+                        if 'eigenvalues' in stat_entry:
+                            eigenvals.append(stat_entry['eigenvalues'])
+                        if 'grad_norm' in stat_entry:
+                            grad_norms.append(stat_entry['grad_norm'])
+                        if 'step' in stat_entry:
+                            steps.append(stat_entry['step'])
+                
+                if eigenvals:
+                    viz_data['eigenvalues_history'][name] = {
+                        'eigenvalues': eigenvals,
+                        'steps': steps
+                    }
+                
+                if grad_norms:
+                    viz_data['gradient_norms_history'][name] = {
+                        'grad_norms': grad_norms,
+                        'steps': steps
+                    }
+        
+        # Add gradient norm history from param_data
+        for param_name, param_info in self.param_data.items():
+            if 'gradient_norm_history' in param_info and len(param_info['gradient_norm_history']) > 0:
+                if param_name not in viz_data['gradient_norms_history']:
+                    viz_data['gradient_norms_history'][param_name] = {}
+                
+                # Merge with existing data or create new
+                existing_norms = viz_data['gradient_norms_history'][param_name].get('grad_norms', [])
+                param_norms = list(param_info['gradient_norm_history'])
+                
+                # Use the longer list (param_data usually has more frequent updates)
+                if len(param_norms) > len(existing_norms):
+                    viz_data['gradient_norms_history'][param_name]['grad_norms'] = param_norms
+                    # Generate steps if not available
+                    if 'steps' not in viz_data['gradient_norms_history'][param_name]:
+                        viz_data['gradient_norms_history'][param_name]['steps'] = list(range(len(param_norms)))
+        
+        return viz_data
 
     @property
     def param_groups(self):

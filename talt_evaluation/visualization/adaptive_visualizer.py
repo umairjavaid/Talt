@@ -441,36 +441,138 @@ class AdaptiveVisualizer:
         talt_data = {}
         
         try:
-            # Extract loss values
-            if 'train_loss' in experiment_data:
-                talt_data['loss_values'] = experiment_data['train_loss']
-            elif 'loss_history' in experiment_data:
-                talt_data['loss_history'] = experiment_data['loss_history']
-            
-            # Extract optimizer-specific data if available
+            # First, try to get optimizer from additional_data
+            optimizer = None
             if additional_data:
                 optimizer = additional_data.get('optimizer')
-                if optimizer and hasattr(optimizer, '_visualization_data'):
-                    viz_data = optimizer._visualization_data
-                    if 'eigenvalues' in viz_data:
-                        talt_data['eigenvalues'] = viz_data['eigenvalues']
-                    if 'bifurcation_points' in viz_data:
-                        talt_data['valley_detections'] = viz_data['bifurcation_points']
-                
-                if optimizer and hasattr(optimizer, 'grad_memory'):
-                    talt_data['grad_memory'] = optimizer.grad_memory
-                
-                if optimizer and hasattr(optimizer, 'bifurcations'):
-                    talt_data['valley_detections'] = optimizer.bifurcations
+                # Also check for 'talt_optimizer' key
+                if optimizer is None:
+                    optimizer = additional_data.get('talt_optimizer')
             
-            # Extract from experiment data directly
-            if 'talt_visualization_data' in experiment_data:
-                talt_data.update(experiment_data['talt_visualization_data'])
+            # If we have an ImprovedTALTOptimizer instance, extract its data
+            if optimizer and hasattr(optimizer, '_visualization_data'):
+                logger.info("Extracting data from ImprovedTALTOptimizer instance")
+                
+                # Extract loss values
+                if hasattr(optimizer, 'loss_history') and len(optimizer.loss_history) > 0:
+                    talt_data['loss_history'] = list(optimizer.loss_history)
+                    talt_data['loss_values'] = list(optimizer.loss_history)
+                
+                # Extract visualization data
+                viz_data = optimizer._visualization_data
+                
+                # Loss values from visualization data
+                if 'loss_values' in viz_data and len(viz_data['loss_values']) > 0:
+                    if 'loss_values' not in talt_data:
+                        talt_data['loss_values'] = list(viz_data['loss_values'])
+                
+                # Valley detections
+                if 'valley_detections' in viz_data and len(viz_data['valley_detections']) > 0:
+                    talt_data['valley_detections'] = list(viz_data['valley_detections'])
+                
+                # Bifurcation points
+                if hasattr(optimizer, 'bifurcations') and len(optimizer.bifurcations) > 0:
+                    talt_data['bifurcations'] = list(optimizer.bifurcations)
+                
+                # Extract gradient statistics and eigenvalues
+                if 'gradient_stats' in viz_data:
+                    gradient_stats = {}
+                    eigenvalues_history = {}
+                    gradient_norms_history = {}
+                    
+                    for param_name, stats_deque in viz_data['gradient_stats'].items():
+                        if len(stats_deque) > 0:
+                            stats_list = list(stats_deque)
+                            gradient_stats[param_name] = stats_list
+                            
+                            # Extract eigenvalues specifically
+                            eigenvals = []
+                            grad_norms = []
+                            steps = []
+                            
+                            for stat_entry in stats_list:
+                                if isinstance(stat_entry, dict):
+                                    if 'eigenvalues' in stat_entry:
+                                        eigenvals.append(stat_entry['eigenvalues'])
+                                    if 'grad_norm' in stat_entry:
+                                        grad_norms.append(stat_entry['grad_norm'])
+                                    if 'step' in stat_entry:
+                                        steps.append(stat_entry['step'])
+                            
+                            if eigenvals:
+                                eigenvalues_history[param_name] = {
+                                    'eigenvalues': eigenvals,
+                                    'steps': steps
+                                }
+                            
+                            if grad_norms:
+                                gradient_norms_history[param_name] = {
+                                    'grad_norms': grad_norms,
+                                    'steps': steps
+                                }
+                    
+                    if gradient_stats:
+                        talt_data['gradient_stats'] = gradient_stats
+                    if eigenvalues_history:
+                        talt_data['eigenvalues_history'] = eigenvalues_history
+                    if gradient_norms_history:
+                        talt_data['gradient_norms_history'] = gradient_norms_history
+                
+                # Extract gradient norm history from param_data
+                if hasattr(optimizer, 'param_data'):
+                    param_gradient_norms = {}
+                    for param_name, param_info in optimizer.param_data.items():
+                        if 'gradient_norm_history' in param_info and len(param_info['gradient_norm_history']) > 0:
+                            param_gradient_norms[param_name] = list(param_info['gradient_norm_history'])
+                    
+                    if param_gradient_norms:
+                        if 'gradient_norms_history' not in talt_data:
+                            talt_data['gradient_norms_history'] = {}
+                        
+                        for param_name, norms in param_gradient_norms.items():
+                            if param_name not in talt_data['gradient_norms_history']:
+                                talt_data['gradient_norms_history'][param_name] = {'grad_norms': norms}
+                
+                # Use the optimizer's get_visualization_data method if available
+                if hasattr(optimizer, 'get_visualization_data'):
+                    try:
+                        opt_viz_data = optimizer.get_visualization_data()
+                        # Merge with existing data, preferring optimizer method data
+                        for key, value in opt_viz_data.items():
+                            if value:  # Only add non-empty data
+                                talt_data[key] = value
+                        logger.info(f"Successfully extracted data using get_visualization_data: {list(opt_viz_data.keys())}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get visualization data from optimizer method: {e}")
+        
+            # Fallback: Extract from experiment data directly
+            if not talt_data:
+                logger.info("Falling back to experiment_data extraction")
+                
+                # Extract loss values
+                if 'train_loss' in experiment_data:
+                    talt_data['loss_values'] = experiment_data['train_loss']
+                elif 'loss_history' in experiment_data:
+                    talt_data['loss_history'] = experiment_data['loss_history']
+                
+                # Extract from experiment data directly
+                if 'talt_visualization_data' in experiment_data:
+                    talt_data.update(experiment_data['talt_visualization_data'])
+            
+            # Log what we extracted
+            if talt_data:
+                logger.info(f"Successfully extracted TALT data with keys: {list(talt_data.keys())}")
+                for key, value in talt_data.items():
+                    if isinstance(value, (list, dict)):
+                        logger.info(f"  {key}: {len(value) if hasattr(value, '__len__') else 'N/A'} items")
+            else:
+                logger.warning("No TALT visualization data could be extracted")
             
             return talt_data if talt_data else None
-            
+        
         except Exception as e:
             logger.error(f"Error extracting TALT data: {e}")
+            logger.debug(traceback.format_exc())
             return None
     
     def _generate_html_report(self, experiment_data: Dict[str, Any], 
