@@ -264,6 +264,42 @@ class TALTOptimizer:
             
         return loss_val, output
     
+    def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor]], 
+                    y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
+        """
+        Complex step method for handling different input formats.
+        
+        Args:
+            loss_fn: Loss function
+            batch: Input batch - tensor for CNN or dict for transformers
+            y: Target tensor (optional for dict inputs)
+            
+        Returns:
+            Tuple of (loss_value, model_output)
+        """
+        if isinstance(batch, dict):
+            # Handle transformer/BERT inputs
+            if y is None:
+                y = batch.get('labels')
+                if y is None:
+                    raise ValueError("Dictionary input must contain 'labels' key or y must be provided")
+            
+            # Extract inputs and move to device
+            input_ids = batch['input_ids'].to(self.device)
+            attention_mask = batch.get('attention_mask', None)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
+            token_type_ids = batch.get('token_type_ids', None)  
+            if token_type_ids is not None:
+                token_type_ids = token_type_ids.to(self.device)
+            y = y.to(self.device)
+            
+            return self.step(loss_fn, input_ids, y)
+        else:
+            # Handle standard tensor inputs
+            x, targets = batch
+            return self.step(loss_fn, x, targets)
+
     def zero_grad(self, set_to_none: bool = False):
         """Zero gradients of the base optimizer for PyTorch compatibility.
         

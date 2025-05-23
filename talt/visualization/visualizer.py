@@ -372,10 +372,8 @@ class TALTVisualizer:
         first_detection_labeled = True
         for step in detection_points:
             if step < len(loss_history):
-                label = None
-                if first_detection_labeled:
-                    label = f'{detection_label_prefix} Detected'
-                    first_detection_labeled = False
+                label = f"{detection_label_prefix} Detection" if first_detection_labeled else None
+                first_detection_labeled = False
                 plt.axvline(x=step, color='red', linestyle='--', linewidth=1.5, alpha=0.8, label=label)
                 plt.scatter(step, loss_history[step], color='red', marker='o', s=50, zorder=5) # Mark point on loss curve
                 
@@ -405,14 +403,13 @@ class TALTVisualizer:
             return
         
         if data_key not in self.data or not self.data[data_key]:
-            logger.warning(f"No data found for key '{data_key}' to create animation.")
+            logger.info(f"No data available for key '{data_key}' to animate.")
             return
 
         fig, ax = plt.subplots()
         data_to_animate = list(self.data[data_key])
-        if not data_to_animate: # Extra check for empty list after conversion
-            logger.warning(f"Data for key '{data_key}' is empty. Cannot create animation.")
-            plt.close(fig)
+        if not data_to_animate:
+            logger.info("No data points available for animation.")
             return
             
         line, = ax.plot([], [], lw=2)

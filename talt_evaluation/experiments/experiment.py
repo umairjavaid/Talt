@@ -109,8 +109,7 @@ class Experiment:
                 from talt.optimizer import ImprovedTALTOptimizer as TALT
                 
                 # Extract base optimizer parameters
-                base_optimizer_params = {
-                    'lr': self.optimizer_config.get('lr', 0.01),
+                base_optimizer_config = {
                     'momentum': self.optimizer_config.get('momentum', 0.9),
                     'weight_decay': self.optimizer_config.get('weight_decay', 5e-4)
                 }
@@ -133,8 +132,8 @@ class Experiment:
                 base_optimizer = lambda params, lr: torch.optim.SGD(
                     params, 
                     lr=lr,
-                    momentum=base_optimizer_params['momentum'],
-                    weight_decay=base_optimizer_params['weight_decay']
+                    momentum=base_optimizer_config['momentum'],
+                    weight_decay=base_optimizer_config['weight_decay']
                 )
                 
                 # Create TALT optimizer with appropriate parameters
@@ -211,15 +210,14 @@ class Experiment:
         for batch_idx, batch in enumerate(pbar):
             try:
                 if self.optimizer_type == 'talt':
-                    # Use the new step_complex method for better handling
+                    # Use the step_complex method for better handling
                     if isinstance(batch, dict):  # For BERT/transformer models
                         loss_val, outputs = self.optimizer.step_complex(self.criterion, batch)
                         labels = batch['labels'].to(self.device)
                     else:  # For CNN models
                         inputs, labels = batch
                         inputs, labels = inputs.to(self.device), labels.to(self.device)
-                        batch_dict = {'inputs': inputs, 'labels': labels}
-                        loss_val, outputs = self.optimizer.step_complex(self.criterion, batch_dict)
+                        loss_val, outputs = self.optimizer.step_complex(self.criterion, (inputs, labels))
                     
                     loss = torch.tensor(loss_val) if not isinstance(loss_val, torch.Tensor) else loss_val
                 
