@@ -218,46 +218,58 @@ class AdaptiveVisualizer:
                 self.talt_visualizer.add_optimizer_data(talt_data)
                 
                 # Generate loss trajectory with valley detection
-                loss_traj_path = self.viz_dir / f"{self.experiment_name}_talt_loss_trajectory.png"
+                loss_traj_filename = f"{self.experiment_name}_talt_loss_trajectory.png"
                 self.talt_visualizer.visualize_loss_trajectory(
-                    save_path=f"{self.experiment_name}_talt_loss_trajectory.png",
+                    save_path=loss_traj_filename,
                     show=False
                 )
-                self.generated_visualizations['talt_specific'].append(str(loss_traj_path))
+                loss_traj_path = self.viz_dir / loss_traj_filename
+                if loss_traj_path.exists():
+                    self.generated_visualizations['talt_specific'].append(str(loss_traj_path))
                 
                 # Generate eigenvalue spectra
-                eigen_path = self.viz_dir / f"{self.experiment_name}_talt_eigenvalues.png"
+                eigen_filename = f"{self.experiment_name}_talt_eigenvalues.png"
                 self.talt_visualizer.visualize_eigenvalue_spectra(
-                    save_path=f"{self.experiment_name}_talt_eigenvalues.png",
+                    save_path=eigen_filename,
                     show=False
                 )
-                self.generated_visualizations['talt_specific'].append(str(eigen_path))
+                eigen_path = self.viz_dir / eigen_filename
+                if eigen_path.exists():
+                    self.generated_visualizations['talt_specific'].append(str(eigen_path))
                 
                 # Generate gradient transformations
-                grad_trans_path = self.viz_dir / f"{self.experiment_name}_talt_grad_transformations.png"
+                grad_trans_filename = f"{self.experiment_name}_talt_grad_transformations.png"
                 self.talt_visualizer.visualize_gradient_transformations(
-                    save_path=str(grad_trans_path),
+                    save_path=grad_trans_filename,
                     show=False
                 )
-                self.generated_visualizations['talt_specific'].append(str(grad_trans_path))
+                grad_trans_path = self.viz_dir / grad_trans_filename
+                if grad_trans_path.exists():
+                    self.generated_visualizations['talt_specific'].append(str(grad_trans_path))
                 
                 # Generate gradient norm history
-                grad_norm_path = self.viz_dir / f"{self.experiment_name}_talt_grad_norms.png"
+                grad_norm_filename = f"{self.experiment_name}_talt_grad_norms.png"
                 self.talt_visualizer.visualize_gradient_norm_history(
-                    save_path=f"{self.experiment_name}_talt_grad_norms.png",
+                    save_path=grad_norm_filename,
                     show=False
                 )
-                self.generated_visualizations['talt_specific'].append(str(grad_norm_path))
+                grad_norm_path = self.viz_dir / grad_norm_filename
+                if grad_norm_path.exists():
+                    self.generated_visualizations['talt_specific'].append(str(grad_norm_path))
                 
                 # Generate loss landscape with valleys
-                landscape_path = self.viz_dir / f"{self.experiment_name}_talt_loss_landscape.png"
+                landscape_filename = f"{self.experiment_name}_talt_loss_landscape.png"
                 self.talt_visualizer.visualize_loss_landscape_with_valleys(
-                    save_path=str(landscape_path),
+                    save_path=landscape_filename,
                     show=False
                 )
-                self.generated_visualizations['talt_specific'].append(str(landscape_path))
+                landscape_path = self.viz_dir / landscape_filename
+                if landscape_path.exists():
+                    self.generated_visualizations['talt_specific'].append(str(landscape_path))
                 
                 logger.info(f"Generated {len(self.generated_visualizations['talt_specific'])} TALT-specific visualizations")
+            else:
+                logger.warning("No TALT data available for visualization")
             
         except Exception as e:
             logger.error(f"Error generating TALT visualizations: {e}")

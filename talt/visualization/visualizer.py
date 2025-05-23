@@ -17,6 +17,7 @@ except ImportError:
     FuncAnimation = None
 
 import numpy as np
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,8 @@ class TALTVisualizer:
             output_dir: Directory for saving visualizations
             max_points: Maximum number of data points to display for dynamic plots
         """
-        self.output_dir = output_dir
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.max_points = max_points
         self.data = {
             'loss_values': deque(maxlen=max_points),

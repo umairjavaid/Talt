@@ -93,77 +93,95 @@ class TALTOptimizer:
 
     def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
         """
-        CORE TALT ALGORITHM: Transform gradients using eigenspace analysis
+        Transform gradient using exact TALT algorithm.
         
-        Steps:
-        1. Project gradient onto eigenvectors: coeffs = grad^T * V
-        2. Identify valley directions: |eigenvalue| < valley_threshold  
-        3. Amplify valley coefficients: coeffs[valleys] *= (1 + valley_strength)
-        4. Dampen high-curvature coefficients: coeffs[i] *= smoothing_factor/√|λᵢ|
-        5. Project back to gradient space: grad_new = V * coeffs_modified
+        Args:
+            grad: Original gradient tensor
+            name: Parameter name
+            
+        Returns:
+            Transformed gradient tensor
         """
-        if name not in self.grad_memory or grad.numel() < self.min_param_size:
+        if name not in self.grad_memory:
             return grad
             
-        # Store original for fallback
-        orig_grad = grad.clone()
-        dirs = self.principal_dirs[name]  # Eigenvectors V
-        vals = self.eigenvalues[name]     # Eigenvalues Λ
-        valley_strength = self.valley_strength
-        smoothing_factor = self.smoothing_factor
-            
-        if dirs is None or vals is None:
-            return grad  # No eigenspace info yet
-            
         try:
-            # Step 1: Project gradient onto eigenspace
-            flat_grad = grad.view(-1)
-            dirs_device = dirs.to(self.device)
-            coeffs = torch.matmul(flat_grad, dirs_device)  # coeffs = g^T * V
+            # Store gradient in memory
+            flat_grad = grad.view(-1).detach().cpu()
+            self.grad_memory[name].append(flat_grad)
             
-            # Step 2: Identify valley directions (low curvature)
-            low_curvature_mask = (vals.abs() < 0.05)
-            
-            # Step 3: Record bifurcation and amplify valleys
-            if low_curvature_mask.any():
-                self.bifurcations.append(self.steps)
-                # Amplify movement in valley directions
-                coeffs[low_curvature_mask] *= (1.0 + valley_strength)
-            
-            # Step 4: Apply curvature-based coefficient scaling
-            for i, eigenval in enumerate(vals):
-                abs_val = abs(eigenval)
-                if abs_val > 1.0:
-                    # High curvature: dampen to avoid oscillations
-                    scale = (1.0 / torch.sqrt(torch.tensor(abs_val))) * smoothing_factor
-                    coeffs[i] *= scale
-                elif abs_val < 0.5:
-                    # Low curvature: boost for faster convergence
-                    coeffs[i] *= (1.0 + (1.0 - abs_val))
-            
-            # Step 5: Project back to parameter space
-            transformed_grad = torch.matmul(coeffs, dirs_device.t()).view_as(grad)
-            
-            # Safety: Check transformation quality
-            cos_sim = nn.functional.cosine_similarity(
-                transformed_grad.view(-1), orig_grad.view(-1), dim=0
-            )
-            
-            # Blend with original if transformation too aggressive
-            if cos_sim < 0.7:
-                blend_factor = 0.7 - cos_sim
-                transformed_grad = (1.0 - blend_factor) * transformed_grad + blend_factor * orig_grad
+            # Only proceed if we have enough gradients
+            if len(self.grad_memory[name]) < 3:
+                return grad
                 
-            # Safety: Check for NaN/Inf
-            if torch.isnan(transformed_grad).any() or torch.isinf(transformed_grad).any():
-                logger.warning(f"NaN/Inf in transformed gradient for {name}")
-                return orig_grad
-                
-            return transformed_grad
+            # Convert to matrix G = [g₁, g₂, ..., gₖ]
+            grad_matrix = torch.stack(list(self.grad_memory[name]), dim=1)  # [d, k]
             
+            # Center the gradients: Ḡ = G - mean(G)
+            grad_mean = grad_matrix.mean(dim=1, keepdim=True)
+            centered_grads = grad_matrix - grad_mean
+            
+            # Compute covariance matrix: C = ḠᵀḠ/(k-1)
+            k = centered_grads.shape[1]
+            covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)
+            
+            # Add regularization for numerical stability
+            reg = 1e-6 * torch.eye(covariance.shape[0])
+            covariance = covariance + reg
+            
+            # Eigendecomposition: C = VΛVᵀ
+            try:
+                eigenvalues, eigenvectors = torch.linalg.eigh(covariance)
+                
+                # Store eigenvalues for visualization
+                self.eigenvalues[name] = eigenvalues.detach()
+                self.principal_dirs[name] = eigenvectors.detach()
+                
+                # Project current gradient into eigenspace
+                current_centered = flat_grad - grad_mean.squeeze()
+                coeffs = torch.matmul(eigenvectors.t(), current_centered.unsqueeze(1)).squeeze()
+                
+                # Transform coefficients based on eigenvalues
+                # High eigenvalues (high curvature) -> reduce step size
+                # Low eigenvalues (flat regions) -> increase step size
+                eigenvals_clamped = torch.clamp(eigenvalues, min=1e-8)
+                
+                scale_factors = torch.ones_like(eigenvals_clamped)
+                
+                # For high curvature directions (large eigenvalues)
+                high_curvature_mask = eigenvals_clamped > 1.0
+                scale_factors[high_curvature_mask] = self.smoothing_factor / torch.sqrt(eigenvals_clamped[high_curvature_mask])
+                
+                # For flat regions (small eigenvalues)
+                flat_mask = eigenvals_clamped < 0.1
+                scale_factors[flat_mask] = 1.0 + self.valley_strength
+                
+                # Apply transformations
+                transformed_coeffs = coeffs * scale_factors
+                
+                # Reconstruct gradient
+                transformed_grad = torch.matmul(eigenvectors, transformed_coeffs.unsqueeze(1)).squeeze()
+                
+                # Add back the mean
+                transformed_grad = transformed_grad + grad_mean.squeeze()
+                
+                # Store visualization data
+                if len(self._visualization_data['eigenvalues'][name]) < 1000:  # Limit storage
+                    self._visualization_data['eigenvalues'][name].append({
+                        'step': self.steps,
+                        'eigenvalues': eigenvalues.detach().cpu().numpy(),
+                        'grad_norm': torch.norm(flat_grad).item()
+                    })
+                
+                return transformed_grad.view_as(grad).to(grad.device)
+                
+            except RuntimeError as e:
+                logger.warning(f"Eigendecomposition failed for {name}: {e}")
+                return grad
+                
         except Exception as e:
-            logger.warning(f"TALT gradient transformation error for {name}: {e}")
-            return orig_grad
+            logger.error(f"Error in gradient transformation for {name}: {e}")
+            return grad
 
     def _update_topology(self) -> None:
         """

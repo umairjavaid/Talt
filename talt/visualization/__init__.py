@@ -6,30 +6,18 @@ This package provides visualization tools for the TALT optimizer, including:
 - TALTVisualizer: Visualization for the original TALT optimizer
 """
 
-import os
-import sys
-from pathlib import Path
+from .visualizer import TALTVisualizer
 
-# Ensure the talt package is in the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-# Import core visualization components
+# Try to import the improved visualizer, fall back to basic if not available
 try:
-    from talt.visualization.visualizer import TALTVisualizer
-    from talt.visualization.visualizer import TALTVisualizer as ImprovedTALTVisualizer  # Fix import
-except ImportError as e:
-    # Provide fallback imports for partial installations
-    import warnings
-    warnings.warn(f"Error importing visualization components: {e}")
-    
-    # Define placeholder classes if imports fail
-    class ImprovedTALTVisualizer:
-        def __init__(self, *args, **kwargs):
-            raise NotImplementedError("ImprovedTALTVisualizer could not be imported")
-    
-    class TALTVisualizer:
-        def __init__(self, *args, **kwargs):
-            raise NotImplementedError("TALTVisualizer could not be imported")
+    from .original_visualizer import OriginalTALTVisualizer
+    ORIGINAL_VIZ_AVAILABLE = True
+except ImportError:
+    OriginalTALTVisualizer = None
+    ORIGINAL_VIZ_AVAILABLE = False
 
 # Define the public API
-__all__ = ['ImprovedTALTVisualizer', 'TALTVisualizer']
+__all__ = ['TALTVisualizer']
+
+if ORIGINAL_VIZ_AVAILABLE:
+    __all__.append('OriginalTALTVisualizer')
