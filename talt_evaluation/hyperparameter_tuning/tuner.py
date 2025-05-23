@@ -135,65 +135,79 @@ class TaltTuner:
         total_loss = 0.0
         correct = 0
         total = 0
+        successful_batches = 0
         
         for batch_idx, batch in enumerate(train_loader):
-            # Handle different dataset types
-            if isinstance(batch, dict):  # For BERT/transformer models
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-                labels = batch['labels'].to(device)
-                
-                optimizer.zero_grad()
-                
-                if scaler is not None:
-                    with autocast():
+            try:
+                # Handle different dataset types
+                if isinstance(batch, dict):  # For BERT/transformer models
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    labels = batch['labels'].to(device)
+                    
+                    optimizer.zero_grad()
+                    
+                    if scaler is not None:
+                        with autocast():
+                            outputs = model(
+                                input_ids=input_ids,
+                                attention_mask=attention_mask
+                            )
+                            loss = criterion(outputs, labels)
+                        
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
                         outputs = model(
                             input_ids=input_ids,
                             attention_mask=attention_mask
                         )
                         loss = criterion(outputs, labels)
+                        loss.backward()
+                        optimizer.step()
                     
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    outputs = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask
-                    )
-                    loss = criterion(outputs, labels)
-                    loss.backward()
-                    optimizer.step()
-                
-                _, predicted = torch.max(outputs, 1)
-                
-            else:  # For CNN models
-                inputs, labels = batch
-                inputs, labels = inputs.to(device), labels.to(device)
-                
-                optimizer.zero_grad()
-                
-                if scaler is not None:
-                    with autocast():
+                    _, predicted = torch.max(outputs, 1)
+                    
+                elif isinstance(batch, tuple) and len(batch) == 2:  # For CNN models
+                    inputs, labels = batch
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    
+                    optimizer.zero_grad()
+                    
+                    if scaler is not None:
+                        with autocast():
+                            outputs = model(inputs)
+                            loss = criterion(outputs, labels)
+                        
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
                         outputs = model(inputs)
                         loss = criterion(outputs, labels)
+                        loss.backward()
+                        optimizer.step()
                     
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
+                    _, predicted = torch.max(outputs, 1)
                 else:
-                    outputs = model(inputs)
-                    loss = criterion(outputs, labels)
-                    loss.backward()
-                    optimizer.step()
+                    logger.error(f"Unsupported batch format: {type(batch)}")
+                    continue
                 
-                _, predicted = torch.max(outputs, 1)
+                total_loss += loss.item()
+                correct += (predicted == labels).sum().item()
+                total += labels.size(0)
+                successful_batches += 1
+                
+            except Exception as e:
+                logger.error(f"Error in training batch {batch_idx}: {e}")
+                continue
+        
+        # Prevent division by zero
+        if successful_batches == 0 or total == 0:
+            return 0.0, 0.0
             
-            total_loss += loss.item()
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-            
-        return total_loss / len(train_loader), correct / total
+        return total_loss / successful_batches, correct / total
     
     def _validate(self, model, val_loader, criterion, device):
         """

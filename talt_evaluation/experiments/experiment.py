@@ -156,9 +156,9 @@ class Experiment:
             try:
                 optimizer = torch.optim.SGD(
                     self.model.parameters(),
-                    lr=self.optimizer_config.get('lr', 0.1),
+                    lr=self.optimizer_config.get('lr', 0.01),
                     momentum=self.optimizer_config.get('momentum', 0.9),
-                    weight_decay=self.optimizer_config.get('weight_decay', 5e-4)
+                    weight_decay=self.optimizer_config.get('weight_decay', 0)
                 )
                 logger.info("Created SGD optimizer")
             except Exception as e:
@@ -176,7 +176,7 @@ class Experiment:
                 logger.error(f"Error creating Adam optimizer: {e}")
                 raise
         else:
-            raise ValueError(f"Unsupported optimizer type: {self.optimizer_type}")
+            raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
         
         return optimizer
     
@@ -192,9 +192,10 @@ class Experiment:
             'pytorch_version': torch.__version__,
             'cuda_version': torch.version.cuda if torch.cuda.is_available() else None,
             'device_name': torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu',
+            'device': str(self.device),  # Convert device to string for JSON serialization
             'model_config': self.model_config,
             'optimizer_type': self.optimizer_type,
-            'optimizer_config': self.optimizer_config
+            'optimizer_config': {k: (str(v) if isinstance(v, torch.device) else v) for k, v in self.optimizer_config.items()}  # Convert device objects to strings
         }
         
         import json
@@ -207,23 +208,37 @@ class Experiment:
         total_loss = 0.0
         correct = 0
         total = 0
+        successful_batches = 0
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}")
+        
         for batch_idx, batch in enumerate(pbar):
             try:
                 if self.optimizer_type == 'talt':
-                    # Use the step_complex method for better handling
-                    if isinstance(batch, dict):  # For BERT/transformer models
-                        loss_val, outputs = self.optimizer.step_complex(self.criterion, batch)
-                        labels = batch['labels'].to(self.device)
-                    else:  # For CNN models
+                    # Handle batch format for TALT optimizer - convert list to tuple if needed
+                    if isinstance(batch, list) and len(batch) == 2:
+                        # Convert list to tuple format
+                        batch = (batch[0], batch[1])
+                    
+                    if isinstance(batch, tuple) and len(batch) == 2:  # Standard (inputs, labels) format
                         inputs, labels = batch
                         inputs, labels = inputs.to(self.device), labels.to(self.device)
-                        loss_val, outputs = self.optimizer.step_complex(self.criterion, (inputs, labels))
+                        batch_data = (inputs, labels)
+                    elif isinstance(batch, dict):  # Dictionary format for BERT/transformer models
+                        batch_data = {k: v.to(self.device) if torch.is_tensor(v) else v for k, v in batch.items()}
+                        labels = batch_data['labels']
+                    else:
+                        logger.error(f"Unsupported batch format for TALT: {type(batch)}")
+                        continue
                     
+                    # Use the step_complex method for TALT
+                    loss_val, outputs = self.optimizer.step_complex(self.criterion, batch_data)
                     loss = torch.tensor(loss_val) if not isinstance(loss_val, torch.Tensor) else loss_val
                 
                 else:  # Standard PyTorch optimizers
-                    # Handle different dataset types
+                    # Handle different dataset types - convert list to tuple if needed
+                    if isinstance(batch, list) and len(batch) == 2:
+                        batch = (batch[0], batch[1])
+                    
                     if isinstance(batch, dict):  # For BERT/transformer models
                         input_ids = batch['input_ids'].to(self.device)
                         attention_mask = batch['attention_mask'].to(self.device)
@@ -256,7 +271,7 @@ class Experiment:
                             loss.backward()
                             self.optimizer.step()
                     
-                    else:  # For CNN models
+                    elif isinstance(batch, tuple) and len(batch) == 2:  # For CNN models
                         inputs, labels = batch
                         inputs, labels = inputs.to(self.device), labels.to(self.device)
                         
@@ -275,17 +290,22 @@ class Experiment:
                             loss = self.criterion(outputs, labels)
                             loss.backward()
                             self.optimizer.step()
+                    else:
+                        logger.error(f"Unsupported batch format: {type(batch)}")
+                        continue
                 
                 # Calculate metrics
                 _, predicted = torch.max(outputs, 1)
                 total_loss += loss.item()
                 correct += (predicted == labels).sum().item()
                 total += labels.size(0)
+                successful_batches += 1
                 
                 # Update progress bar
+                current_acc = (correct / total * 100.0) if total > 0 else 0.0
                 pbar.set_postfix({
-                    'loss': total_loss / (batch_idx + 1),
-                    'acc': correct / total * 100.0
+                    'loss': total_loss / successful_batches if successful_batches > 0 else 0.0,
+                    'acc': current_acc
                 })
                 
             except torch.cuda.OutOfMemoryError:
@@ -297,7 +317,16 @@ class Experiment:
                 logger.error(f"Error in training batch {batch_idx}: {e}")
                 continue
         
-        epoch_loss = total_loss / len(self.train_loader)
+        # Prevent division by zero
+        if successful_batches == 0:
+            logger.error("No batches were processed successfully!")
+            return 0.0, 0.0
+        
+        if total == 0:
+            logger.error("No samples were processed!")
+            return 0.0, 0.0
+        
+        epoch_loss = total_loss / successful_batches
         epoch_acc = correct / total
         
         return epoch_loss, epoch_acc
@@ -316,7 +345,10 @@ class Experiment:
         
         with torch.no_grad():
             for batch in tqdm(self.val_loader, desc="Validating"):
-                # Handle different dataset types
+                # Handle different dataset types - convert list to tuple if needed
+                if isinstance(batch, list) and len(batch) == 2:
+                    batch = (batch[0], batch[1])
+                
                 if isinstance(batch, dict):  # For BERT/transformer models
                     input_ids = batch['input_ids'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
@@ -367,7 +399,10 @@ class Experiment:
         
         with torch.no_grad():
             for batch in tqdm(self.test_loader, desc="Testing"):
-                # Handle different dataset types
+                # Handle different dataset types - convert list to tuple if needed
+                if isinstance(batch, list) and len(batch) == 2:
+                    batch = (batch[0], batch[1])
+                
                 if isinstance(batch, dict):  # For BERT/transformer models
                     input_ids = batch['input_ids'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
@@ -481,31 +516,28 @@ class Experiment:
             epoch: Current epoch number
             is_best: Whether this is the best model so far
         """
-        checkpoint_dir = os.path.join(self.output_dir, 'checkpoints')
+        checkpoint_dir = self.output_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
         
-        filename = f"checkpoint_epoch_{epoch+1}.pt"
-        if is_best:
-            filename = "best_model.pt"
-        
-        checkpoint_path = os.path.join(checkpoint_dir, filename)
-        
-        # Save checkpoint
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'results': self.results
         }
+        
+        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch}.pt')
         torch.save(checkpoint, checkpoint_path)
         
         if is_best:
-            logger.info(f"Saved best model checkpoint to {checkpoint_path}")
+            best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
+            torch.save(checkpoint, best_model_path)
+            logger.info(f"Saved best model checkpoint to {best_model_path}")
         else:
             logger.info(f"Saved checkpoint to {checkpoint_path}")
     
     def _save_results(self):
-        """Save experiment results to disk."""
+        """Save results to JSON file."""
         results_path = os.path.join(self.output_dir, 'results.json')
         
         # Convert numpy arrays to lists for JSON serialization
@@ -520,7 +552,7 @@ class Experiment:
             json.dump(serializable_results, f, indent=2)
         
         logger.info(f"Saved results to {results_path}")
-    
+
     def load_checkpoint(self, checkpoint_path):
         """
         Load a checkpoint.
@@ -529,7 +561,7 @@ class Experiment:
             checkpoint_path: Path to the checkpoint file
         """
         if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
         
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         

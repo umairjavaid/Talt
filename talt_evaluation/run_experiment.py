@@ -215,7 +215,7 @@ def main():
             'grad_store_interval': args.grad_store_interval,
             'cov_decay': args.cov_decay,
             'adaptive_reg': args.adaptive_reg,
-            'device': device  # Explicitly include device parameter
+            'device': device  # Keep device for TALT creation, will be filtered out during JSON serialization
         }
         optimizer_config.update(talt_params)
     

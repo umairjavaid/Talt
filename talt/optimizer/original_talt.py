@@ -271,7 +271,7 @@ class TALTOptimizer:
         
         Args:
             loss_fn: Loss function
-            batch: Input batch - tensor for CNN or dict for transformers
+            batch: Input batch - tensor for CNN or dict for transformers, or tuple/list of (x, y)
             y: Target tensor (optional for dict inputs)
             
         Returns:
@@ -295,10 +295,19 @@ class TALTOptimizer:
             y = y.to(self.device)
             
             return self.step(loss_fn, input_ids, y)
-        else:
-            # Handle standard tensor inputs
+        elif isinstance(batch, (tuple, list)) and len(batch) == 2:
+            # Handle standard tensor inputs - both tuple and list formats
             x, targets = batch
+            x = x.to(self.device) if hasattr(x, 'to') else x
+            targets = targets.to(self.device) if hasattr(targets, 'to') else targets
             return self.step(loss_fn, x, targets)
+        else:
+            # Handle single tensor case or unknown format
+            if hasattr(batch, 'to'):
+                batch = batch.to(self.device)
+            if y is not None and hasattr(y, 'to'):
+                y = y.to(self.device)
+            return self.step(loss_fn, batch, y)
 
     def zero_grad(self, set_to_none: bool = False):
         """Zero gradients of the base optimizer for PyTorch compatibility.
