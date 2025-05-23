@@ -77,13 +77,23 @@ def get_vgg(vgg_type, dataset='cifar10', pretrained=False):
     Create a VGG model for the specified dataset.
     
     Args:
-        vgg_type: VGG type (e.g., 'vgg11', 'vgg11_bn')
+        vgg_type: VGG type (e.g., 'vgg11', 'vgg11_bn', 'vgg16')
         dataset: Name of the dataset this model will be used with
         pretrained: Whether to use pretrained weights
     
     Returns:
         tuple: (model, model_config)
     """
+    # Extract VGG variant from string like 'vgg16' -> '16'
+    if vgg_type.startswith('vgg'):
+        variant = vgg_type[3:]  # Remove 'vgg' prefix
+        if variant.endswith('_bn'):
+            vgg_variant = f"vgg{variant}"
+        else:
+            vgg_variant = vgg_type
+    else:
+        vgg_variant = vgg_type
+    
     num_classes = 10
     if dataset.lower() == 'cifar100':
         num_classes = 100
@@ -91,12 +101,12 @@ def get_vgg(vgg_type, dataset='cifar10', pretrained=False):
         num_classes = 1000
     # Add other dataset-specific num_classes if needed
     
-    model = VGGModel(vgg_type, num_classes=num_classes, pretrained=pretrained)
+    model = VGGModel(vgg_variant, num_classes=num_classes, pretrained=pretrained)
     
     model_config = {
         'name': model.name,
         'model_type': model.model_type,
-        'vgg_type': vgg_type, # Store the specific VGG type like vgg11_bn
+        'vgg_type': vgg_variant, # Store the specific VGG type like vgg11_bn
         'num_classes': num_classes
     }
     

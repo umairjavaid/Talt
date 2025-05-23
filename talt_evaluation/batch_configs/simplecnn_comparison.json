@@ -1,9 +1,9 @@
 {
-  "description": "Quick TALT vs SGD pipeline test with SimpleCNN on CIFAR-10",
+  "description": "Quick TALT vs SGD pipeline test with VGG16 on CIFAR-10",
   "experiments": [
     {
       "name": "pipeline_test_talt",
-      "architecture": "simplecnn",
+      "architecture": "vgg16",
       "dataset": "cifar10",
       "optimizer": "talt",
       "epochs": 3,
@@ -21,7 +21,7 @@
     },
     {
       "name": "pipeline_test_sgd",
-      "architecture": "simplecnn",
+      "architecture": "vgg16",
       "dataset": "cifar10",
       "optimizer": "sgd",
       "epochs": 3,

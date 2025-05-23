@@ -144,3 +144,8 @@ def get_cifar100(batch_size=128, num_workers=4, root="./data"):
         tuple: (train_loader, val_loader, test_loader)
     """
     return get_cifar_dataset(
+        num_classes=100, 
+        root=root, 
+        batch_size=batch_size, 
+        num_workers=num_workers
+    )

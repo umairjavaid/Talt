@@ -64,13 +64,19 @@ def get_resnet(depth, dataset='cifar10', pretrained=False):
     Create a ResNet model for the specified dataset.
     
     Args:
-        depth: Depth of ResNet (18, 34, 50, 101, or 152)
+        depth: Depth of ResNet (18, 34, 50, 101, or 152) or string like 'resnet18'
         dataset: Name of the dataset this model will be used with
         pretrained: Whether to use pretrained weights
     
     Returns:
         tuple: (model, model_config)
     """
+    # Extract depth from string like 'resnet18' -> 18
+    if isinstance(depth, str) and depth.startswith('resnet'):
+        depth = int(depth[6:])  # Remove 'resnet' prefix
+    elif isinstance(depth, str):
+        depth = int(depth)
+    
     num_classes = 10
     if dataset.lower() == 'cifar100':
         num_classes = 100

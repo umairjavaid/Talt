@@ -101,7 +101,7 @@ def parse_args():
     
     parser.add_argument('--name', type=str, required=True, help='Experiment name')
     parser.add_argument('--architecture', type=str, required=True, 
-                        choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base'],
+                        choices=['resnet18', 'resnet50', 'vgg16', 'efficientnet-b0', 'bert-base', 'simplecnn'],
                         help='Neural network architecture')
     parser.add_argument('--dataset', type=str, required=True, 
                         choices=['cifar10', 'cifar100', 'glue-sst2'],

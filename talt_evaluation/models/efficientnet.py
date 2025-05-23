@@ -58,13 +58,19 @@ def get_efficientnet(model_variant, dataset='cifar10', pretrained=False):
     Create an EfficientNet model for the specified dataset.
     
     Args:
-        model_variant: EfficientNet variant ('b0', 'b1', ..., 'b7')
+        model_variant: EfficientNet variant ('b0', 'b1', ..., 'b7') or string like 'efficientnet-b0'
         dataset: Name of the dataset this model will be used with
         pretrained: Whether to use pretrained weights
     
     Returns:
         tuple: (model, model_config)
     """
+    # Extract variant from string like 'efficientnet-b0' -> 'b0'
+    if isinstance(model_variant, str) and model_variant.startswith('efficientnet-'):
+        variant = model_variant[13:]  # Remove 'efficientnet-' prefix
+    else:
+        variant = model_variant
+    
     num_classes = 10
     if dataset.lower() == 'cifar100':
         num_classes = 100
@@ -72,12 +78,12 @@ def get_efficientnet(model_variant, dataset='cifar10', pretrained=False):
         num_classes = 1000
     # Add other dataset-specific num_classes if needed
     
-    model = EfficientNetModel(model_variant, num_classes=num_classes, pretrained=pretrained)
+    model = EfficientNetModel(variant, num_classes=num_classes, pretrained=pretrained)
     
     model_config = {
         'name': model.name,
         'model_type': model.model_type,
-        'variant': model_variant,
+        'variant': variant,
         'num_classes': num_classes
     }
     
