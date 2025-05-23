@@ -8,6 +8,7 @@ import torch.nn as nn
 import logging
 import psutil
 import numpy as np
+import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
@@ -38,6 +39,8 @@ class ImprovedTALTOptimizer:
     2. Incremental covariance estimation
     3. Robust eigendecomposition via power iteration
     4. Non-parametric valley detection
+    
+    Production-ready TALT with memory optimizations and robust numerical handling.
     """
     def __init__(
         self,
@@ -95,6 +98,16 @@ class ImprovedTALTOptimizer:
         self.device = device if isinstance(device, torch.device) else torch.device(device)
         self.max_stored_steps = max_stored_steps
         self.max_visualization_points = max_visualization_points
+        self.grad_clip_norm = grad_clip_norm
+        self.grad_clip_value = grad_clip_value
+        self.detect_anomaly = detect_anomaly
+
+        # Thread safety attributes
+        self._state_lock = threading.Lock()
+        self._pending_updates = set()
+        self._update_in_progress = False
+        self.anomaly_count = 0
+        self.max_anomalies = 10
 
         # Initialize GradScaler for mixed precision
         self.scaler = GradScaler()
@@ -176,7 +189,7 @@ class ImprovedTALTOptimizer:
             flat_grad = grad.view(-1)
 
             # Ensure transformation is on correct device
-            if transformation.device != flat_grad.device:
+            if transformation is not None and transformation.device != flat_grad.device:
                 transformation = transformation.to(flat_grad.device)
 
             # Update valley detector (thread-safe)
@@ -226,8 +239,17 @@ class ImprovedTALTOptimizer:
 
             return transformed_grad
 
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                logger.error(f"GPU OOM in gradient transformation for {name}: {e}")
+            else:
+                logger.warning(f"Runtime error in gradient transformation for {name}: {e}")
+            return orig_grad
+        except ValueError as e:
+            logger.warning(f"Value error in gradient transformation for {name}: {e}")
+            return orig_grad
         except Exception as e:
-            logger.warning(f"Error transforming gradient for {name}: {e}")
+            logger.warning(f"Unexpected error transforming gradient for {name}: {e}")
             return orig_grad
 
     def _update_topology(self) -> None:
@@ -244,12 +266,11 @@ class ImprovedTALTOptimizer:
                 # Adaptive regularization based on condition number
                 if self.adaptive_reg:
                     try:
-                        eigs = torch.linalg.eigvalsh(cov)
-                        if eigs[0] > 0:  # Avoid division by zero
-                            condition_number = eigs[-1] / eigs[0]
-                            reg = max(1e-6, min(1e-2, 1e-5 * condition_number))
-                            cov = cov + reg * torch.eye(cov.shape[0], device=cov.device)
-                    except Exception:
+                        eigenvals = torch.linalg.eigvalsh(cov)
+                        condition_number = torch.abs(eigenvals[-1] / eigenvals[0]) if eigenvals[0] != 0 else 1e12
+                        reg = max(1e-6, min(1e-2, 1e-5 * condition_number))
+                        cov = cov + reg * torch.eye(cov.shape[0], device=cov.device)
+                    except RuntimeError:
                         # Fallback: add standard regularization
                         cov = cov + 1e-6 * torch.eye(cov.shape[0], device=cov.device)
 
@@ -290,8 +311,15 @@ class ImprovedTALTOptimizer:
                 # Clean up to avoid memory leaks
                 del cov, eigenvalues, eigenvectors, transform
 
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    logger.error(f"GPU OOM in topology update for {name}: {e}")
+                else:
+                    logger.warning(f"Runtime error updating topology for {name}: {e}")
+            except ValueError as e:
+                logger.warning(f"Value error updating topology for {name}: {e}")
             except Exception as e:
-                logger.warning(f"Error updating topology for {name}: {e}")
+                logger.warning(f"Unexpected error updating topology for {name}: {e}")
 
     def _update_topology_async(self) -> None:
         """Update topology asynchronously with proper thread safety."""
@@ -511,8 +539,8 @@ class ImprovedTALTOptimizer:
         # Cleanup visualization data
         self._cleanup_visualization_data()
         
-        # Cleanup old gradient history
-        for name, param_info in self.param_data.items():
+        # Cleanup old gradient history - thread-safe iteration
+        for name, param_info in list(self.param_data.items()):
             if 'gradient_norm_history' in param_info:
                 # Keep only recent history
                 max_history = self.max_stored_steps // 10
@@ -612,198 +640,6 @@ class ImprovedTALTOptimizer:
                 logger.debug(f"Could not get GPU stats: {e}")
         
         return stats
-
-    def _update_topology_async(self) -> None:
-        """Update topology asynchronously with proper thread safety."""
-        with self._state_lock:
-            # Check if update is already in progress
-            if self._update_in_progress:
-                return
-            
-            # Check if previous future is done
-            if hasattr(self, '_topology_update_future') and self._topology_update_future:
-                if not self._topology_update_future.done():
-                    return  # Previous update still running
-                
-                # Get result to check for exceptions
-                try:
-                    self._topology_update_future.result(timeout=0)
-                except Exception as e:
-                    logger.error(f"Previous topology update failed: {e}")
-            
-            # Mark update as in progress
-            self._update_in_progress = True
-            
-            # Mark all parameters as pending update
-            self._pending_updates = set(self.param_data.keys())
-        
-        # Submit update task
-        def update_with_cleanup():
-            try:
-                self._update_topology()
-            finally:
-                with self._state_lock:
-                    self._pending_updates.clear()
-                    self._update_in_progress = False
-        
-        self._topology_update_future = self.executor.submit(update_with_cleanup)
-
-    def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor]], 
-             y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
-        """
-        Perform an optimization step with gradient clipping and NaN detection.
-        
-        Args:
-            loss_fn: Loss function that takes (predictions, targets) and returns loss
-            x: Input data - either a tensor (CNN) or dict (BERT/transformers)
-            y: Target data - if None, extracted from x['labels'] for dict inputs
-            
-        Returns:
-            Tuple of (loss_value, model_output)
-        """
-        # Initialize timings
-        timings = {}
-        batch_start = time.time()
-        
-        self.optimizer.zero_grad()
-        self.model.train()
-        
-        # Handle different input types
-        if isinstance(x, dict):
-            # Transformer model with dictionary inputs
-            # Extract labels if y not provided
-            if y is None:
-                y = x.get('labels')
-                if y is None:
-                    raise ValueError("Dictionary input must contain 'labels' key or y must be provided")
-            
-            # Separate model inputs from labels
-            model_inputs = {k: v.to(self.device) for k, v in x.items() if k != 'labels'}
-            y = y.to(self.device)
-            
-            # Forward pass
-            forward_start = time.time()
-            with autocast('cuda'):
-                out = self.model(**model_inputs)
-                
-                # Handle different output formats
-                if hasattr(out, 'logits'):  # transformers ModelOutput
-                    logits = out.logits
-                elif isinstance(out, dict) and 'logits' in out:
-                    logits = out['logits']
-                else:
-                    logits = out
-                
-                loss = loss_fn(logits, y)
-            forward_time = time.time() - forward_start
-            timings['forward_pass'] = forward_time
-            
-            # For compatibility, return logits as output
-            out = logits
-        else:
-            # Standard tensor inputs (CNN models)
-            if y is None:
-                raise ValueError("Target tensor y must be provided for tensor inputs")
-            
-            x = x.to(self.device)
-            y = y.to(self.device)
-            
-            # Forward pass
-            forward_start = time.time()
-            with autocast('cuda'):
-                out = self.model(x)
-                loss = loss_fn(out, y)
-            forward_time = time.time() - forward_start
-            timings['forward_pass'] = forward_time
-        
-        # Check for NaN/Inf loss
-        if torch.isnan(loss) or torch.isinf(loss):
-            self.anomaly_count += 1
-            logger.warning(f"NaN/Inf loss detected (count: {self.anomaly_count})")
-            
-            if self.anomaly_count > self.max_anomalies:
-                raise RuntimeError(f"Too many anomalies ({self.anomaly_count}), stopping training")
-            
-            # Skip this batch
-            self.optimizer.zero_grad()
-            
-            # Return previous loss value if available
-            if self.loss_history:
-                return self.loss_history[-1], out.detach()
-            else:
-                return 0.0, out.detach()
-        
-        # Backward pass
-        backward_start = time.time()
-        
-        # Enable anomaly detection if requested
-        with torch.autograd.set_detect_anomaly(self.detect_anomaly):
-            self.scaler.scale(loss).backward()
-        
-        # Gradient clipping
-        if self.grad_clip_norm is not None or self.grad_clip_value is not None:
-            self.scaler.unscale_(self.optimizer)
-            
-            # Clip by norm
-            if self.grad_clip_norm is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), 
-                    self.grad_clip_norm
-                )
-                
-                # Log if clipping occurred
-                if grad_norm > self.grad_clip_norm:
-                    logger.debug(f"Gradient norm clipped: {grad_norm:.4f} -> {self.grad_clip_norm}")
-            
-            # Clip by value
-            if self.grad_clip_value is not None:
-                torch.nn.utils.clip_grad_value_(
-                    self.model.parameters(),
-                    self.grad_clip_value
-                )
-        
-        backward_time = time.time() - backward_start
-        timings['backward_pass'] = backward_time
-        
-        # Store and analyze gradients periodically
-        grad_start = time.time()
-        if self.steps % self.store_interval == 0:
-            for name, p in self.model.named_parameters():
-                if p.grad is not None and name in self.param_data:
-                    flat_grad = p.grad.detach().view(-1)
-                    
-                    # Update covariance with projected gradient
-                    projected_grad = self.param_data[name]['projector'].project(flat_grad)
-                    self.param_data[name]['covariance'].update(projected_grad)
-        grad_time = time.time() - grad_start
-        timings['gradient_processing'] = grad_time
-        
-        # Update parameters
-        optim_start = time.time()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        optim_time = time.time() - optim_start
-        timings['optimizer_step'] = optim_time
-        
-        # Track progress
-        self.steps += 1
-        loss_value = loss.item()
-        self.loss_history.append(loss_value)
-        self._visualization_data['loss_values'].append(loss_value)
-        
-        # Print progress
-        if self.steps % 10 == 0 or self.steps == 1:
-            self._print_progress(loss_value, timings)
-        
-        # Update topology information periodically
-        if self.steps % self.update_interval == 0:
-            self._update_topology_async()
-        
-        # Periodic cleanup
-        if self.steps % 100 == 0:
-            self._cleanup_memory()
-        
-        return loss_value, out
 
     def state_dict(self):
         """Return optimizer state dict for checkpoint saving."""
