@@ -109,7 +109,9 @@ class TALTOptimizer:
         orig_grad = grad.clone()
         dirs = self.principal_dirs[name]  # Eigenvectors V
         vals = self.eigenvalues[name]     # Eigenvalues Λ
-        
+        valley_strength = self.valley_strength
+        smoothing_factor = self.smoothing_factor
+            
         if dirs is None or vals is None:
             return grad  # No eigenspace info yet
             
@@ -126,14 +128,14 @@ class TALTOptimizer:
             if low_curvature_mask.any():
                 self.bifurcations.append(self.steps)
                 # Amplify movement in valley directions
-                coeffs[low_curvature_mask] *= (1.0 + self.valley_strength)
+                coeffs[low_curvature_mask] *= (1.0 + valley_strength)
             
             # Step 4: Apply curvature-based coefficient scaling
             for i, eigenval in enumerate(vals):
                 abs_val = abs(eigenval)
                 if abs_val > 1.0:
                     # High curvature: dampen to avoid oscillations
-                    scale = (1.0 / torch.sqrt(torch.tensor(abs_val))) * self.smoothing_factor
+                    scale = (1.0 / torch.sqrt(torch.tensor(abs_val))) * smoothing_factor
                     coeffs[i] *= scale
                 elif abs_val < 0.5:
                     # Low curvature: boost for faster convergence
@@ -272,13 +274,8 @@ class TALTOptimizer:
 
     @property
     def param_groups(self):
-        """Expose param_groups for scheduler compatibility."""
+        """Access to underlying optimizer's parameter groups."""
         return self.optimizer.param_groups
-    
-    @param_groups.setter
-    def param_groups(self, value):
-        """Set param_groups for scheduler compatibility."""
-        self.optimizer.param_groups = value
     
     def state_dict(self):
         """Return optimizer state dict for checkpoint saving."""

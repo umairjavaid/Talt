@@ -1,94 +1,97 @@
-"""Covariance estimation component for TALT optimizer."""
+"""Incremental covariance estimation for TALT optimizer."""
 
 import torch
+import logging
+from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 class IncrementalCovariance:
     """
-    Computes covariance matrix incrementally to save memory.
-
-    Allows for updating the covariance estimate one sample at a time,
-    with exponential forgetting to give more weight to recent samples.
+    Incremental covariance matrix estimation with exponential decay.
+    
+    This class maintains a running estimate of the covariance matrix
+    of input vectors using exponential moving averages.
     """
-
-    def __init__(self, dim: int, decay: float = 0.95):
+    
+    def __init__(
+        self, 
+        dim: int, 
+        decay: float = 0.95, 
+        reg: float = 1e-6,
+        device: Optional[Union[str, torch.device]] = None
+    ):
         """
         Initialize incremental covariance estimator.
-
+        
         Args:
-            dim: Dimension of data
-            decay: Decay factor for old observations (0-1)
+            dim: Dimension of input vectors
+            decay: Exponential decay factor (closer to 1 = longer memory)
+            reg: Regularization to add to diagonal
+            device: Device to store matrices on
         """
         self.dim = dim
         self.decay = decay
-        self.n_samples = 0
-        self.mean = torch.zeros(dim)
-        self.cov = torch.zeros(dim, dim)
-
+        self.reg = reg
+        self.device = device if device is not None else torch.device('cpu')
+        
+        # Initialize on specified device
+        self.mean = torch.zeros(dim, device=self.device)
+        self.cov = torch.eye(dim, device=self.device) * reg
+        self.count = 0
+        
     def update(self, x: torch.Tensor) -> None:
         """
-        Update covariance estimate with new data.
-
-        Args:
-            x: New data point(s) of shape (batch_size, dim) or (dim,)
-        """
-        # Ensure input is on CPU and 2D
-        x = x.cpu()
-        if x.dim() == 1:
-            x = x.unsqueeze(0)
-
-        batch_size = x.shape[0]
-
-        for i in range(batch_size):
-            x_i = x[i]
-
-            # Apply decay to previous statistics
-            if self.n_samples > 0:
-                self.mean *= self.decay
-                self.cov *= self.decay**2
-
-            # Update sample count with decay
-            self.n_samples = self.decay * self.n_samples + 1
-
-            # Update mean
-            delta = x_i - self.mean
-            self.mean += delta / self.n_samples
-
-            # Update covariance
-            delta2 = x_i - self.mean
-            factor = 1.0 / max(1, self.n_samples - 1)
-            self.cov += torch.outer(delta, delta2) * factor
-
-    def get_covariance(self, reg: float = 1e-6) -> torch.Tensor:
-        """
-        Get current covariance estimate with regularization and proper device handling.
+        Update covariance estimate with new vector.
         
         Args:
-            reg: Regularization parameter to ensure positive definiteness
+            x: Input vector of shape (dim,)
+        """
+        # Move to CPU for computation, then back to target device
+        x = x.detach().cpu()
+        
+        if x.shape[0] != self.dim:
+            raise ValueError(f"Expected vector of dim {self.dim}, got {x.shape[0]}")
+        
+        self.count += 1
+        
+        if self.count == 1:
+            # First update - move to target device
+            self.mean = x.to(self.device)
+            self.cov = torch.eye(self.dim, device=self.device) * self.reg
+        else:
+            # Move current state to CPU for computation
+            mean_cpu = self.mean.cpu()
+            cov_cpu = self.cov.cpu()
             
-        Returns:
-            Regularized covariance matrix on the correct device
+            # Incremental mean update
+            delta = x - mean_cpu
+            new_mean = mean_cpu + delta / self.count
+            
+            # Incremental covariance update with decay
+            delta2 = x - new_mean
+            new_cov = (
+                self.decay * cov_cpu + 
+                (1 - self.decay) * torch.outer(delta, delta2)
+            )
+            
+            # Move back to target device
+            self.mean = new_mean.to(self.device)
+            self.cov = new_cov.to(self.device)
+    
+    def get_covariance(self) -> torch.Tensor:
         """
-        # Determine the device from existing tensors
-        device = self.cov.device if hasattr(self.cov, 'device') else 'cpu'
+        Get current covariance estimate with regularization.
         
-        if self.n_samples < 2:
-            # Not enough samples, return regularized identity matrix
-            return torch.eye(self.dim, device=device) * reg
-        
-        # Add regularization with correct device
-        reg_matrix = torch.eye(self.dim, device=device) * reg
-        cov = self.cov + reg_matrix
-        
-        # Ensure symmetry (important for numerical stability)
-        cov = 0.5 * (cov + cov.t())
-        
-        # Additional numerical stability check
-        try:
-            # Check if matrix is positive definite
-            torch.linalg.cholesky(cov)
-        except RuntimeError:
-            # If not positive definite, add more regularization
-            additional_reg = torch.eye(self.dim, device=device) * (reg * 10)
-            cov = cov + additional_reg
-        
-        return cov
+        Returns:
+            Covariance matrix of shape (dim, dim) on target device
+        """
+        # Ensure regularization and return on correct device
+        regularized_cov = self.cov + self.reg * torch.eye(self.dim, device=self.device)
+        return regularized_cov
+    
+    def reset(self) -> None:
+        """Reset the covariance estimator."""
+        self.mean = torch.zeros(self.dim, device=self.device)
+        self.cov = torch.eye(self.dim, device=self.device) * self.reg
+        self.count = 0
