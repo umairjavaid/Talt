@@ -25,13 +25,13 @@ RUN python -m pip install --upgrade pip setuptools wheel
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements.txt* ./
+COPY ../requirements.txt* ./
 
 # Install requirements (PyTorch packages are already in base image)
 RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
 # Copy TALT source code
-COPY . .
+COPY .. .
 
 # Install TALT package in editable mode
 RUN pip install -e .
