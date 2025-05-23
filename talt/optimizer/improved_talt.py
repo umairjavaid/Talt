@@ -94,10 +94,9 @@ class ImprovedTALTOptimizer:
         try:
             test_optimizer = base_optimizer(model.parameters(), lr=lr)
             if not hasattr(test_optimizer, 'step') or not hasattr(test_optimizer, 'zero_grad'):
-                raise TypeError("base_optimizer must return a valid PyTorch optimizer")
-            self.optimizer = test_optimizer
+                raise TypeError("base_optimizer must return a valid optimizer with 'step' and 'zero_grad' methods")
         except Exception as e:
-            raise ValueError(f"base_optimizer failed to create valid optimizer: {e}")
+            raise TypeError(f"Failed to create test optimizer: {e}")
         
         self.projection_dim = projection_dim
         self.memory_size = memory_size
@@ -512,22 +511,42 @@ class ImprovedTALTOptimizer:
         
         return loss_value, out
 
-    def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor]], 
-                    y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
+    def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor], Tuple], 
+                y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
         """
         Complex step method for handling different input formats.
-        This is an alias to the main step method for backward compatibility.
         
         Args:
             loss_fn: Loss function
-            batch: Input batch (tensor or dict)
+            batch: Input batch - tensor for CNN or dict for transformers, or tuple/list of (x, y)
             y: Target tensor (optional for dict inputs)
             
         Returns:
             Tuple of (loss_value, model_output)
         """
-        return self.step(loss_fn, batch, y)
-
+        if isinstance(batch, dict):
+            # Handle transformer/BERT inputs
+            if y is None:
+                y = batch.get('labels')
+                if y is None:
+                    raise ValueError("Dictionary input must contain 'labels' key or y must be provided")
+            return self.step(loss_fn, batch, y)
+        elif isinstance(batch, (tuple, list)) and len(batch) == 2:
+            # Handle standard tensor inputs - both tuple and list formats
+            x, targets = batch
+            if hasattr(x, 'to'):
+                x = x.to(self.device)
+            if hasattr(targets, 'to'):
+                targets = targets.to(self.device)
+            return self.step(loss_fn, x, targets)
+        else:
+            # Handle single tensor case or unknown format
+            if hasattr(batch, 'to'):
+                batch = batch.to(self.device)
+            if y is not None and hasattr(y, 'to'):
+                y = y.to(self.device)
+            return self.step(loss_fn, batch, y)
+        
     def _cleanup_removed_parameters(self) -> None:
         """Remove parameter data for parameters that no longer exist in the model."""
         current_param_names = set(name for name, _ in self.model.named_parameters())

@@ -252,7 +252,7 @@ def main():
         val_loader=val_loader,
         test_loader=test_loader,
         optimizer_type=args.optimizer,
-        optimizer_config=optimizer_config,
+        optimizer_config={k: v for k, v in optimizer_config.items() if k != 'device'},  # Remove device from config
         epochs=args.epochs,
         device=device,
         output_dir=experiment_dir,

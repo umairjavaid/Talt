@@ -540,11 +540,22 @@ class Experiment:
         """Save results to JSON file."""
         results_path = os.path.join(self.output_dir, 'results.json')
         
-        # Convert numpy arrays to lists for JSON serialization
+        # Create a deep copy of results for serialization
         serializable_results = {}
         for key, value in self.results.items():
             if isinstance(value, np.ndarray):
                 serializable_results[key] = value.tolist()
+            elif isinstance(value, dict) and key == 'optimizer_config':
+                # Handle optimizer config specially to remove device objects
+                serializable_config = {}
+                for k, v in value.items():
+                    if isinstance(v, torch.device):
+                        serializable_config[k] = str(v)
+                    elif hasattr(v, '__class__') and 'device' in str(type(v)):
+                        serializable_config[k] = str(v)
+                    else:
+                        serializable_config[k] = v
+                serializable_results[key] = serializable_config
             else:
                 serializable_results[key] = value
         

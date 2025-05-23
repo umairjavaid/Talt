@@ -264,7 +264,7 @@ class TALTOptimizer:
             
         return loss_val, output
     
-    def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor]], 
+    def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor], Tuple], 
                     y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
         """
         Complex step method for handling different input formats.
