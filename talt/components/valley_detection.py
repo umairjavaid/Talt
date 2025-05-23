@@ -2,7 +2,7 @@
 
 import torch
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +118,16 @@ class ValleyDetector:
         except Exception as e:
             logger.warning(f"Error computing valley direction: {e}")
             return None
+    
+    def detect_valley(self) -> Tuple[bool, Optional[torch.Tensor]]:
+        """
+        Detect if in valley and get valley direction if available.
+        
+        This is a convenience method that combines is_in_valley and get_valley_direction.
+        
+        Returns:
+            Tuple of (is_in_valley, valley_direction)
+        """
+        is_valley = self.is_in_valley()
+        valley_dir = self.get_valley_direction() if is_valley else None
+        return is_valley, valley_dir
