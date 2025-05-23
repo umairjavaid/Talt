@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .base import BaseArchitecture
 from transformers import BertModel as HFBertModel, BertConfig
 import torch.nn as nn
 
-class BERTModel(BaseArchitecture):
+class BERTModel(nn.Module):
     """BERT model implementation for text classification tasks."""
     
     def __init__(self, variant='base', num_classes=2, pretrained=True):
@@ -17,7 +16,9 @@ class BERTModel(BaseArchitecture):
             num_classes: Number of output classes
             pretrained: Whether to use pretrained weights
         """
-        super(BERTModel, self).__init__(f"bert-{variant}", 'llm')
+        super(BERTModel, self).__init__()
+        self.name = f"bert-{variant}"
+        self.model_type = 'llm'
         self.variant = variant
         self.num_classes = num_classes
         

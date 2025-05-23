@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .base import BaseArchitecture
 import torchvision.models as models
 import torch.nn as nn
 
-class EfficientNetModel(BaseArchitecture):
+class EfficientNetModel(nn.Module):
     """EfficientNet model implementation with CIFAR dataset adaptations."""
     
     def __init__(self, model_variant, num_classes=10, pretrained=False):
@@ -17,7 +16,9 @@ class EfficientNetModel(BaseArchitecture):
             num_classes: Number of output classes
             pretrained: Whether to use pretrained weights
         """
-        super(EfficientNetModel, self).__init__(f"efficientnet-{model_variant}", 'cnn')
+        super(EfficientNetModel, self).__init__()
+        self.name = f"efficientnet-{model_variant}"
+        self.model_type = 'cnn'
         self.model_variant = model_variant
         self.num_classes = num_classes
         

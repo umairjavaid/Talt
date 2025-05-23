@@ -10,9 +10,6 @@ from .efficientnet import EfficientNetModel, get_efficientnet
 # LLM models
 from .bert import BERTModel, get_bert
 
-# Base model class
-from .base import BaseArchitecture
-
 import torch
 
 def get_architecture(architecture_name, dataset="cifar10", **kwargs):
@@ -84,7 +81,7 @@ def get_architecture(architecture_name, dataset="cifar10", **kwargs):
     else:
         raise ValueError(f"Unknown architecture: {architecture_name}")
 
-__all__ = ["get_architecture", "BaseArchitecture", 
+__all__ = ["get_architecture", 
            "SimpleCNN", "ResNetModel", "get_resnet", 
            "VGGModel", "get_vgg", "EfficientNetModel", "get_efficientnet",
            "BERTModel", "get_bert"]

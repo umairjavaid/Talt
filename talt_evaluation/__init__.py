@@ -21,8 +21,8 @@
 # will work fine without changes here.
 
 # Considering the refactoring, we might want to expose the new models entry point:
-from .models import get_architecture, BaseArchitecture
+from .models import get_architecture
 from .datasets import cifar, glue  # Assuming these are still relevant entry points
 from .experiments import experiment  # Assuming this is a relevant entry point
 
-__all__ = ["get_architecture", "BaseArchitecture", "cifar", "glue", "experiment"]
+__all__ = ["get_architecture", "cifar", "glue", "experiment"]

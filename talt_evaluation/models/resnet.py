@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .base import BaseArchitecture
 import torchvision.models as models
 import torch.nn as nn
 
-class ResNetModel(BaseArchitecture):
+class ResNetModel(nn.Module):
     """ResNet model implementation with CIFAR dataset adaptations."""
     
     def __init__(self, depth, num_classes=10, pretrained=False):
@@ -17,7 +16,9 @@ class ResNetModel(BaseArchitecture):
             num_classes: Number of output classes
             pretrained: Whether to use pretrained weights
         """
-        super(ResNetModel, self).__init__(f"resnet{depth}", 'cnn')
+        super(ResNetModel, self).__init__()
+        self.name = f"resnet{depth}"
+        self.model_type = 'cnn'
         self.depth = depth
         self.num_classes = num_classes
         
@@ -54,18 +55,9 @@ class ResNetModel(BaseArchitecture):
         base_model.fc = nn.Linear(in_features, num_classes)
         
         self.model = base_model
-        # self.visualization_hooks = [] # Example for hooks, if needed
-        # self.activation_maps = {}   # Example for hooks, if needed
-        # self._register_hooks()      # Call if hooks are implemented
-    
-    # def _register_hooks(self):
-    #     pass # Implement if needed
     
     def forward(self, x):
         return self.model(x)
-
-    # get_optimizer_config and get_hyperparameter_search_space can be inherited or overridden
-    # architecture_specific_visualization can be inherited or overridden
 
 def get_resnet(depth, dataset='cifar10', pretrained=False):
     """

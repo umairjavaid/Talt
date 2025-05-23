@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .base import BaseArchitecture
 import torchvision.models as models
 import torch.nn as nn
 
-class VGGModel(BaseArchitecture):
+class VGGModel(nn.Module):
     """VGG model implementation with CIFAR dataset adaptations."""
     
     def __init__(self, vgg_type, num_classes=10, pretrained=False):
@@ -17,7 +16,9 @@ class VGGModel(BaseArchitecture):
             num_classes: Number of output classes
             pretrained: Whether to use pretrained weights
         """
-        super(VGGModel, self).__init__(vgg_type, 'cnn') # Name is the vgg_type itself
+        super(VGGModel, self).__init__()
+        self.name = vgg_type
+        self.model_type = 'cnn'
         self.vgg_type = vgg_type
         self.num_classes = num_classes
         
@@ -67,18 +68,9 @@ class VGGModel(BaseArchitecture):
                 nn.init.constant_(m.bias, 0)
         
         self.model = base_model
-        # self.visualization_hooks = [] # Example for hooks
-        # self.activation_maps = {}   # Example for hooks
-        # self._register_hooks()      # Call if hooks are implemented
-
-    # def _register_hooks(self):
-    #     pass # Implement if needed
 
     def forward(self, x):
         return self.model(x)
-
-    # get_optimizer_config and get_hyperparameter_search_space can be inherited or overridden
-    # architecture_specific_visualization can be inherited or overridden
 
 def get_vgg(vgg_type, dataset='cifar10', pretrained=False):
     """
