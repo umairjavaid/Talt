@@ -10,24 +10,12 @@ current_dir = Path(__file__).parent
 if str(current_dir) not in sys.path:
     sys.path.insert(0, str(current_dir))
 
+from .cifar import get_cifar10, get_cifar100
 try:
-    from .cifar import get_cifar10, get_cifar100
     from .glue import get_glue_sst2
 except ImportError:
-    # Fallback for direct execution
-    try:
-        from cifar import get_cifar10, get_cifar100
-        from glue import get_glue_sst2
-    except ImportError as e:
-        import warnings
-        warnings.warn(f"Could not import dataset modules: {e}")
-        # Provide dummy functions
-        def get_cifar10(*args, **kwargs):
-            raise NotImplementedError("CIFAR10 dataset not available")
-        def get_cifar100(*args, **kwargs):
-            raise NotImplementedError("CIFAR100 dataset not available")
-        def get_glue_sst2(*args, **kwargs):
-            raise NotImplementedError("GLUE SST-2 dataset not available")
+    def get_glue_sst2(*args, **kwargs):
+        raise NotImplementedError("GLUE SST-2 dataset not available")
 
 def get_dataset(dataset_name, **kwargs):
     """Get dataset loaders by name."""
