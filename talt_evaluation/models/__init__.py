@@ -56,19 +56,27 @@ def get_architecture(architecture_name, dataset="cifar10", **kwargs):
             num_channels = 3
             image_size = 32
             num_classes = 10 if dataset.lower() == "cifar10" else 100
-        elif dataset.lower() == "mnist": # Example for another dataset
+        elif dataset.lower() == "mnist":
             num_channels = 1
             image_size = 28
             num_classes = 10
         else:
-            raise ValueError(f"Dataset {dataset} not configured for SimpleCNN. Please specify num_channels and image_size.")
+            # Default values if dataset not recognized
+            num_channels = kwargs.pop('num_channels', 3)
+            image_size = kwargs.pop('image_size', 32)
+            num_classes = kwargs.pop('num_classes', 10)
         
         # Allow kwargs to override defaults for SimpleCNN if provided
         num_channels = kwargs.pop('num_channels', num_channels)
         image_size = kwargs.pop('image_size', image_size)
         num_classes = kwargs.pop('num_classes', num_classes)
 
-        model = SimpleCNN(num_channels=num_channels, image_size=image_size, num_classes=num_classes, **kwargs)
+        model = SimpleCNN(num_channels=num_channels, image_size=image_size, num_classes=num_classes)
+        
+        # Add required attributes for compatibility with the framework
+        model.name = 'simplecnn'
+        model.model_type = 'cnn'
+        
         model_config = {
             'name': 'simplecnn',
             'model_type': 'cnn',
@@ -92,12 +100,9 @@ def get_dataset(dataset_name, **kwargs):
     Returns:
         tuple: (train_loader, val_loader, test_loader)
     """
-    if dataset_name.lower() == "mnist":
-        from talt_evaluation.datasets.cifar import get_mnist
-        return get_mnist(**kwargs)
-    # Add other datasets here as needed
-    else:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
+    # Import from the datasets module
+    from talt_evaluation.datasets import get_dataset as get_ds
+    return get_ds(dataset_name, **kwargs)
 
 __all__ = ["get_architecture", 
            "SimpleCNN", "ResNetModel", "get_resnet", 

@@ -1,12 +1,12 @@
 {
-  "description": "Quick TALT vs SGD pipeline test with VGG16 on CIFAR-10",
+  "description": "SimpleCNN comparison on MNIST with SGD and TALT",
   "experiments": [
     {
-      "name": "pipeline_test_talt",
-      "architecture": "vgg16",
-      "dataset": "cifar10",
+      "name": "simplecnn_mnist_talt",
+      "architecture": "simplecnn",
+      "dataset": "mnist",
       "optimizer": "talt",
-      "epochs": 3,
+      "epochs": 5,
       "batch-size": 64,
       "lr": 0.01,
       "mixed-precision": true,
@@ -20,11 +20,11 @@
       "grad-store-interval": 5
     },
     {
-      "name": "pipeline_test_sgd",
-      "architecture": "vgg16",
-      "dataset": "cifar10",
+      "name": "simplecnn_mnist_sgd",
+      "architecture": "simplecnn",
+      "dataset": "mnist",
       "optimizer": "sgd",
-      "epochs": 3,
+      "epochs": 5,
       "batch-size": 64,
       "lr": 0.01,
       "momentum": 0.9,

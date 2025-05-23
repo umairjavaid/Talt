@@ -81,3 +81,63 @@ docs/_build/
 # Docker files
 Dockerfile.*
 docker-compose*.yml
+
+# Training artifacts and outputs
+results/
+experiments/
+logs/
+checkpoints/
+output/
+runs/
+wandb/
+
+# Experiment and evaluation outputs
+experiment_*/
+batch_*/
+*_results/
+*_output/
+*_checkpoints/
+
+# Visualization outputs
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+visualizations/
+plots/
+figures/
+
+# Training logs and metrics
+training_*.json
+results_*.json
+metrics_*.json
+summary_*.json
+batch_summary.json
+metadata.json
+
+# Hyperparameter tuning artifacts
+optuna_studies/
+*.db
+*.sqlite
+studies/
+
+# Dataset cache
+.cache/
+cache/
+*_cache/
+
+# Temporary training files
+temp/
+
+# Performance monitoring
+profiler_logs/
+memory_profiler_*.txt
+
+# MLflow artifacts
+mlruns/
+mlartifacts/
+
+# TensorBoard logs
+tensorboard_logs/
+tb_logs/
