@@ -7,7 +7,7 @@ import torch.nn as nn
 class VGGModel(nn.Module):
     """VGG model implementation with CIFAR dataset adaptations."""
     
-    def __init__(self, vgg_type, num_classes=10, pretrained=False):
+    def __init__(self, vgg_type, num_classes=10, pretrained=True):
         """
         Initialize a VGG model.
         
@@ -64,7 +64,7 @@ class VGGModel(nn.Module):
         # Initialize weights for the modified classifier layers
         for m in base_model.classifier.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
         
         self.model = base_model
