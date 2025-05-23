@@ -7,7 +7,7 @@ import torch.nn as nn
 class ResNetModel(nn.Module):
     """ResNet model implementation with CIFAR dataset adaptations."""
     
-    def __init__(self, depth, num_classes=10, pretrained=False):
+    def __init__(self, depth, num_classes=10, pretrained=True):
         """
         Initialize a ResNet model.
         

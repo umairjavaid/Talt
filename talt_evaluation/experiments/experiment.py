@@ -207,9 +207,7 @@ class Experiment:
         total_loss = 0.0
         correct = 0
         total = 0
-        
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}")
-        
         for batch_idx, batch in enumerate(pbar):
             try:
                 if self.optimizer_type == 'talt':

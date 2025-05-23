@@ -7,7 +7,7 @@ import torch.nn as nn
 class EfficientNetModel(nn.Module):
     """EfficientNet model implementation with CIFAR dataset adaptations."""
     
-    def __init__(self, model_variant, num_classes=10, pretrained=False):
+    def __init__(self, model_variant, num_classes=10, pretrained=True):
         """
         Initialize an EfficientNet model.
         

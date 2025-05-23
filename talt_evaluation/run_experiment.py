@@ -95,6 +95,10 @@ def validate_experiment_config(args):
         for param in talt_params:
             if not hasattr(args, param) or getattr(args, param) is None:
                 logger.warning(f"Missing TALT parameter {param}, using default")
+    
+    # Additional validation
+    if args.lr <= 0:
+        raise ValueError("Learning rate must be greater than 0.")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run single TALT optimization experiment')
@@ -270,6 +274,11 @@ def main():
     
     # Run experiment
     experiment.run()
+    
+    # Debugging: Log gradients and parameter updates
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            logger.info(f"Parameter: {name}, Grad: {param.grad}")
     
     # Create visualization report
     create_training_report(experiment, experiment_dir)
