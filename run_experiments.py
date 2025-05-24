@@ -163,7 +163,7 @@ def main():
     single_parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
     
     # TALT-specific parameters
-    single_parser.add_argument('--projection-dim', type=int, default=16, help='TALT projection dimension')
+    single_parser.add_argument('--projection-dim', type=int, default=256, help='TALT projection dimension')
     single_parser.add_argument('--memory-size', type=int, default=8, help='TALT memory size')
     single_parser.add_argument('--update-interval', type=int, default=25, help='TALT update interval')
     single_parser.add_argument('--valley-strength', type=float, default=0.15, help='TALT valley strength')

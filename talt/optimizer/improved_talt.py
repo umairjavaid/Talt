@@ -260,9 +260,16 @@ class ImprovedTALTOptimizer:
 
                 # Apply valley transformation in projected space if valley_dir exists
                 if valley_dir is not None:
-                    # Valley direction is already in projected space from valley detector
+                    # Valley direction is from the original space (where ValleyDetector operates).
+                    # Move it to the correct device (same as projected_grad).
                     valley_dir = valley_dir.to(projected_grad.device)
-                    valley_component = torch.dot(projected_grad, valley_dir) * valley_dir
+                    
+                    # Project valley_dir to the low-dimensional space.
+                    # param_info['projector'].project() will handle its internal matrix device.
+                    projected_valley_dir = param_info['projector'].project(valley_dir)
+                    
+                    # Now projected_valley_dir is in the same (projected) space as projected_grad.
+                    valley_component = torch.dot(projected_grad, projected_valley_dir) * projected_valley_dir
                     
                     # Clip valley component to prevent gradient explosion
                     valley_component = torch.clamp(valley_component, -10.0, 10.0)
