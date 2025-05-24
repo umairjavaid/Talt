@@ -102,10 +102,16 @@ class AdaptiveVisualizer:
         # Detect optimizer type
         if 'optimizer_type' in experiment_data:
             context['optimizer_type'] = experiment_data['optimizer_type']
-            context['is_talt'] = experiment_data['optimizer_type'].lower() in ['talt', 'improved_talt']
+            # Fix: Include 'improved-talt' and 'original-talt' in detection
+            context['is_talt'] = experiment_data['optimizer_type'].lower() in [
+                'talt', 'improved_talt', 'improved-talt', 'original_talt', 'original-talt'
+            ]
         elif 'optimizer' in experiment_data:
             context['optimizer_type'] = experiment_data['optimizer']
-            context['is_talt'] = experiment_data['optimizer'].lower() in ['talt', 'improved_talt']
+            # Fix: Include 'improved-talt' and 'original-talt' in detection
+            context['is_talt'] = experiment_data['optimizer'].lower() in [
+                'talt', 'improved_talt', 'improved-talt', 'original_talt', 'original-talt'
+            ]
         
         # Detect architecture type
         if 'model_config' in experiment_data:

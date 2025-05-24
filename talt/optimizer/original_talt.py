@@ -418,6 +418,52 @@ class TALTOptimizer:
         
         return viz_data
 
+    def get_tensorboard_metrics(self) -> Dict[str, Any]:
+        """
+        Get current metrics for TensorBoard logging.
+        
+        Returns:
+            Dictionary containing current TALT metrics for TensorBoard
+        """
+        metrics = {}
+        
+        # Extract current eigenvalues
+        eigenvalue_data = {}
+        gradient_norms = {}
+        curvature_estimates = {}
+        
+        for param_name in self.grad_memory.keys():
+            # Current eigenvalues
+            if param_name in self.eigenvalues and self.eigenvalues[param_name] is not None:
+                eigenvals = self.eigenvalues[param_name].detach().cpu().numpy()
+                eigenvalue_data[param_name] = eigenvals
+                
+                # Calculate curvature estimate
+                curvature_estimates[param_name] = float(np.max(np.abs(eigenvals)))
+            
+            # Current gradient norms from recent memory
+            if param_name in self.grad_memory and len(self.grad_memory[param_name]) > 0:
+                recent_grad = self.grad_memory[param_name][-1]
+                gradient_norms[param_name] = float(torch.norm(recent_grad).item())
+        
+        # Add metrics to result
+        if eigenvalue_data:
+            metrics['eigenvalues'] = eigenvalue_data
+        if gradient_norms:
+            metrics['gradient_norms'] = gradient_norms
+        if curvature_estimates:
+            metrics['curvature_estimates'] = curvature_estimates
+        
+        # Bifurcations
+        if hasattr(self, 'bifurcations') and self.bifurcations:
+            metrics['bifurcations'] = list(self.bifurcations)
+        
+        # Valley detections from visualization data
+        if hasattr(self, '_visualization_data') and 'bifurcation_points' in self._visualization_data:
+            metrics['valley_detections'] = [(step, 'valley') for step in self._visualization_data['bifurcation_points']]
+        
+        return metrics
+
     def _print_progress(self, loss_value: float, step: int) -> None:
         """Print training progress information."""
         if step % 10 == 0 or step == 1:

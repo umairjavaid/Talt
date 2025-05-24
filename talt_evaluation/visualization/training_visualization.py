@@ -136,7 +136,7 @@ def plot_optimizer_comparison(results_dir, experiment_dirs, output_path):
 
 def create_training_report(experiment, output_dir):
     """
-    Create visualization report for training results.
+    Create visualization report for training results with TensorBoard integration.
     
     Args:
         experiment: Experiment object with results
@@ -151,7 +151,7 @@ def create_training_report(experiment, output_dir):
     plot_learning_curves(experiment.results, learning_curves_path)
     
     # If TALT-specific visualizations are available (optimizer dependent)
-    if experiment.optimizer_type in ['talt', 'improved_talt'] and hasattr(experiment, 'optimizer'):
+    if experiment.optimizer_type in ['talt', 'improved_talt', 'improved-talt', 'original_talt', 'original-talt'] and hasattr(experiment, 'optimizer'):
         try:
             # Run diagnostics if available
             if hasattr(experiment.optimizer, 'diagnose_visualization_state'):
@@ -162,13 +162,21 @@ def create_training_report(experiment, output_dir):
             if hasattr(experiment.optimizer, 'force_topology_update'):
                 experiment.optimizer.force_topology_update()
             
-            # Get trajectory data
-            if hasattr(experiment.optimizer, 'get_visualization_data'):
+            # Get trajectory data - try TensorBoard-compatible method first
+            trajectory_data = None
+            if hasattr(experiment.optimizer, 'get_tensorboard_metrics'):
+                trajectory_data = experiment.optimizer.get_tensorboard_metrics()
+                # Also get historical data
+                if hasattr(experiment.optimizer, 'get_visualization_data'):
+                    historical_data = experiment.optimizer.get_visualization_data()
+                    # Merge with current metrics
+                    trajectory_data.update(historical_data)
+            elif hasattr(experiment.optimizer, 'get_visualization_data'):
                 trajectory_data = experiment.optimizer.get_visualization_data()
+            
+            if trajectory_data:
                 _plot_talt_trajectory(trajectory_data, os.path.join(vis_dir, 'talt_trajectory.png'))
-            elif hasattr(experiment.optimizer, 'get_trajectory_data'):
-                trajectory_data = experiment.optimizer.get_trajectory_data()
-                _plot_talt_trajectory(trajectory_data, os.path.join(vis_dir, 'talt_trajectory.png'))
+            
         except Exception as e:
             print(f"Could not generate TALT-specific visualizations: {e}")
     

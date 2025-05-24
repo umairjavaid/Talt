@@ -298,3 +298,56 @@ class OriginalTALTVisualizer:
             f.write(html_content)
         
         return report_path
+    
+    def get_tensorboard_compatible_data(self, optimizer_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert optimizer data to TensorBoard-compatible format.
+        
+        Args:
+            optimizer_data: Dictionary containing optimizer state data
+            
+        Returns:
+            Dictionary formatted for TensorBoard logging
+        """
+        tb_data = {}
+        
+        # Convert loss values
+        if 'loss_values' in optimizer_data and optimizer_data['loss_values']:
+            tb_data['loss_history'] = optimizer_data['loss_values']
+        
+        # Convert eigenvalues to current format
+        if 'eigenvalues' in optimizer_data and optimizer_data['eigenvalues']:
+            eigenvalue_data = {}
+            for param_name, eig_history in optimizer_data['eigenvalues'].items():
+                if eig_history and len(eig_history) > 0:
+                    # Get latest eigenvalues
+                    latest_step, latest_eigenvals = eig_history[-1]
+                    if isinstance(latest_eigenvals, torch.Tensor):
+                        latest_eigenvals = latest_eigenvals.cpu().numpy()
+                    eigenvalue_data[param_name] = latest_eigenvals
+            
+            if eigenvalue_data:
+                tb_data['eigenvalues'] = eigenvalue_data
+        
+        # Convert gradient memory to gradient norms
+        if 'grad_memory' in optimizer_data and optimizer_data['grad_memory']:
+            gradient_norms = {}
+            for param_name, grad_history in optimizer_data['grad_memory'].items():
+                if grad_history and len(grad_history) > 0:
+                    # Get latest gradient norm
+                    latest_grad_info = grad_history[-1]
+                    if isinstance(latest_grad_info, tuple) and len(latest_grad_info) >= 2:
+                        _, grad_norm = latest_grad_info[0], latest_grad_info[1]
+                        gradient_norms[param_name] = grad_norm
+            
+            if gradient_norms:
+                tb_data['gradient_norms'] = gradient_norms
+        
+        # Convert bifurcation points to valley detections
+        if 'bifurcation_points' in optimizer_data and optimizer_data['bifurcation_points']:
+            tb_data['bifurcations'] = optimizer_data['bifurcation_points']
+            # Also format as valley detections
+            valley_detections = [(step, 'valley') for step in optimizer_data['bifurcation_points']]
+            tb_data['valley_detections'] = valley_detections
+        
+        return tb_data
