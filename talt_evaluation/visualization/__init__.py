@@ -20,6 +20,15 @@ from .feature_visualization import plot_cnn_feature_maps
 from .comprehensive_analysis import CrossExperimentAnalyzer
 from .adaptive_visualizer import AdaptiveVisualizer
 
+# Import TensorBoard logger with fallback
+try:
+    from .tensorboard_logger import TALTTensorBoardLogger, create_tensorboard_logger
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TALTTensorBoardLogger = None
+    create_tensorboard_logger = None
+    TENSORBOARD_AVAILABLE = False
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -106,5 +115,7 @@ __all__ = [
     "plot_bert_attention",
     "plot_cnn_feature_maps",
     "CrossExperimentAnalyzer",
-    "AdaptiveVisualizer"
+    "AdaptiveVisualizer",
+    "TALTTensorBoardLogger",
+    "create_tensorboard_logger"
 ]

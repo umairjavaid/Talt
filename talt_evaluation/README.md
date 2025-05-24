@@ -12,12 +12,64 @@ The TALT Evaluation Framework allows systematic comparison between TALT and stan
 
 ## Features
 
+- **Real-time TensorBoard visualization** of TALT-specific metrics
 - **Hyperparameter tuning** of TALT optimizer using Optuna
-- **Visualization tools** for training metrics, feature maps, and attention patterns
+- **Interactive visualization tools** for training metrics, feature maps, and attention patterns
 - **Reproducible experiment configurations** via JSON
 - **Batch processing** for running multiple experiments
 - **Mixed-precision training** support
 - **Checkpoint management** for saving and resuming training
+
+## TensorBoard Integration
+
+The framework now includes comprehensive TensorBoard logging for real-time visualization of:
+
+### Standard Metrics
+- Training and validation loss/accuracy curves
+- Learning rate schedules
+- Parameter norms and gradients
+- Model architecture graphs
+
+### TALT-Specific Metrics
+- **Eigenvalue trajectories**: Evolution of top eigenvalues for each parameter group
+- **Valley detection events**: Markers showing when optimization valleys are detected
+- **Bifurcation points**: Critical points in the optimization trajectory
+- **Gradient transformations**: Before/after transformation norms and distributions
+- **Curvature estimates**: Parameter-wise Hessian eigenvalue estimates
+- **Loss landscape smoothness**: Rolling variance and gradient stability metrics
+- **Convergence efficiency**: Steps to reach accuracy thresholds
+
+### Viewing TensorBoard Logs
+
+After running experiments, start TensorBoard to view the logs:
+
+```bash
+# View logs for a specific experiment
+tensorboard --logdir ./results/experiment_name/tensorboard_logs
+
+# View logs for all experiments  
+tensorboard --logdir ./results --host 0.0.0.0 --port 6006
+```
+
+Access the dashboard at http://localhost:6006
+
+### Docker with TensorBoard
+
+```bash
+docker run --rm --gpus all --ipc=host \
+    -v $(pwd)/results:/app/results \
+    -v $(pwd)/data:/app/data \
+    -p 6006:6006 \
+    talt:latest \
+    bash -c "python run_experiment.py --name simplecnn_cifar10_talt \
+                                      --architecture simplecnn \
+                                      --dataset cifar10 \
+                                      --optimizer improved-talt \
+                                      --epochs 10 \
+                                      --batch-size 64 \
+                                      --lr 0.01 && \
+             tensorboard --logdir=/app/results --host=0.0.0.0 --port=6006"
+```
 
 ## Directory Structure
 

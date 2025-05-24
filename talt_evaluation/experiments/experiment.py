@@ -11,6 +11,10 @@ from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from datetime import datetime
 import sys
+from typing import Dict, List, Optional, Any, Tuple, Union
+from pathlib import Path
+
+from ..visualization.tensorboard_logger import create_tensorboard_logger, TALTTensorBoardLogger
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +99,23 @@ class Experiment:
         # Initialize timing
         self.start_time = None
         self.end_time = None
-    
+        
+        # Initialize TensorBoard logger
+        self.tensorboard_logger = None
+        try:
+            tensorboard_log_dir = self.output_dir / "tensorboard_logs"
+            self.tensorboard_logger = create_tensorboard_logger(
+                str(tensorboard_log_dir), 
+                self.name
+            )
+            if self.tensorboard_logger:
+                logger.info(f"TensorBoard logging enabled: {tensorboard_log_dir}")
+            else:
+                logger.info("TensorBoard logging disabled (not available)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize TensorBoard logger: {e}")
+            self.tensorboard_logger = None
+
     def _create_optimizer(self):
         """
         Create optimizer based on specified type and configuration.
@@ -651,3 +671,213 @@ class Experiment:
             json.dump(serializable_results, f, indent=2)
         
         logger.info(f"Saved results to {results_path}")
+    
+    def train_epoch(self, epoch: int) -> Dict[str, float]:
+        """Train for one epoch with TensorBoard logging."""
+        self.model.train()
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        
+        # Calculate global step for TensorBoard
+        global_step = epoch * len(self.train_loader)
+        
+        for batch_idx, batch_data in enumerate(self.train_loader):
+            current_step = global_step + batch_idx
+            
+            # Handle different batch formats
+            if isinstance(batch_data, (tuple, list)):
+                if len(batch_data) == 2:
+                    inputs, targets = batch_data
+                else:
+                    inputs, targets = batch_data[0], batch_data[1]
+            elif isinstance(batch_data, dict):
+                inputs = batch_data
+                targets = batch_data.get('labels')
+            else:
+                inputs = batch_data
+                targets = None
+            
+            # Move to device
+            if hasattr(inputs, 'to'):
+                inputs = inputs.to(self.device)
+            elif isinstance(inputs, dict):
+                inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            
+            if targets is not None and hasattr(targets, 'to'):
+                targets = targets.to(self.device)
+            
+            # Training step with optimizer-specific handling
+            if hasattr(self.optimizer, 'step_complex'):
+                # TALT optimizers with complex step method
+                loss_value, outputs = self.optimizer.step_complex(self.criterion, inputs, targets)
+                loss = torch.tensor(loss_value)  # Convert to tensor for backward compatibility
+            elif hasattr(self.optimizer, 'step') and callable(getattr(self.optimizer, 'step')):
+                # Check if this is a TALT optimizer with custom step
+                if hasattr(self.optimizer, 'model') and hasattr(self.optimizer, 'scaler'):
+                    # TALT optimizer
+                    loss_value, outputs = self.optimizer.step(self.criterion, inputs, targets)
+                    loss = torch.tensor(loss_value)
+                else:
+                    # Standard optimizer
+                    self.optimizer.zero_grad()
+                    
+                    if isinstance(inputs, dict):
+                        outputs = self.model(**inputs)
+                        if hasattr(outputs, 'logits'):
+                            outputs = outputs.logits
+                    else:
+                        outputs = self.model(inputs)
+                    
+                    loss = self.criterion(outputs, targets)
+                    loss.backward()
+                    self.optimizer.step()
+            else:
+                raise ValueError(f"Unsupported optimizer type: {type(self.optimizer)}")
+            
+            # Calculate metrics
+            total_loss += loss.item()
+            
+            # Calculate accuracy based on output format
+            if hasattr(outputs, 'logits'):
+                predictions = torch.argmax(outputs.logits, dim=1)
+            else:
+                predictions = torch.argmax(outputs, dim=1)
+            
+            if targets is not None:
+                correct += (predictions == targets).sum().item()
+                total += targets.size(0)
+            
+            # Log to TensorBoard every few batches
+            if self.tensorboard_logger and batch_idx % 10 == 0:
+                current_accuracy = correct / total if total > 0 else 0.0
+                
+                # Determine optimizer name for logging
+                optimizer_name = self.optimizer_type if hasattr(self, 'optimizer_type') else 'main'
+                
+                # Log basic metrics
+                self.tensorboard_logger.log_training_step(
+                    step=current_step,
+                    loss=loss.item(),
+                    accuracy=current_accuracy,
+                    optimizer_state=self.optimizer,
+                    optimizer_name=optimizer_name
+                )
+                
+                # Log parameter norms
+                self.tensorboard_logger.log_parameter_norms(
+                    step=current_step,
+                    model=self.model,
+                    optimizer_name=optimizer_name
+                )
+                
+                # Log loss landscape smoothness
+                if hasattr(self, 'results') and 'train_loss' in self.results:
+                    self.tensorboard_logger.log_loss_landscape_smoothness(
+                        step=current_step,
+                        loss_history=self.results['train_loss'],
+                        optimizer_name=optimizer_name
+                    )
+        
+        # Calculate epoch metrics
+        avg_loss = total_loss / len(self.train_loader)
+        accuracy = correct / total if total > 0 else 0.0
+        
+        # Log epoch metrics to TensorBoard
+        if self.tensorboard_logger:
+            optimizer_name = self.optimizer_type if hasattr(self, 'optimizer_type') else 'main'
+            
+            # Log epoch summary
+            self.tensorboard_logger.writer.add_scalar(f'Epoch/Loss/{optimizer_name}', avg_loss, epoch)
+            self.tensorboard_logger.writer.add_scalar(f'Epoch/Accuracy/{optimizer_name}', accuracy, epoch)
+            
+            # Log convergence metrics if we have enough history
+            if hasattr(self, 'results') and 'train_loss' in self.results and len(self.results['train_loss']) >= 5:
+                self.tensorboard_logger.log_convergence_metrics(
+                    step=epoch,
+                    loss_history=self.results['train_loss'],
+                    accuracy_history=self.results.get('train_acc', []),
+                    optimizer_name=optimizer_name
+                )
+        
+        return {
+            'loss': avg_loss,
+            'accuracy': accuracy
+        }
+    
+    def validate_epoch(self, epoch: int) -> Dict[str, float]:
+        """Validate for one epoch with TensorBoard logging."""
+        self.model.eval()
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        
+        with torch.no_grad():
+            for batch_data in self.val_loader:
+                # Handle different batch formats
+                if isinstance(batch_data, (tuple, list)):
+                    if len(batch_data) == 2:
+                        inputs, targets = batch_data
+                    else:
+                        inputs, targets = batch_data[0], batch_data[1]
+                elif isinstance(batch_data, dict):
+                    inputs = batch_data
+                    targets = batch_data.get('labels')
+                else:
+                    inputs = batch_data
+                    targets = None
+                
+                # Move to device
+                if hasattr(inputs, 'to'):
+                    inputs = inputs.to(self.device)
+                elif isinstance(inputs, dict):
+                    inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+                
+                if targets is not None and hasattr(targets, 'to'):
+                    targets = targets.to(self.device)
+                
+                # Forward pass
+                if isinstance(inputs, dict):
+                    outputs = self.model(**inputs)
+                    if hasattr(outputs, 'logits'):
+                        outputs = outputs.logits
+                else:
+                    outputs = self.model(inputs)
+                
+                loss = self.criterion(outputs, targets)
+                total_loss += loss.item()
+                
+                # Calculate accuracy
+                predictions = torch.argmax(outputs, dim=1)
+                if targets is not None:
+                    correct += (predictions == targets).sum().item()
+                    total += targets.size(0)
+        
+        # Calculate validation metrics
+        avg_loss = total_loss / len(self.val_loader)
+        accuracy = correct / total if total > 0 else 0.0
+        
+        # Log validation metrics to TensorBoard
+        if self.tensorboard_logger:
+            optimizer_name = self.optimizer_type if hasattr(self, 'optimizer_type') else 'main'
+            self.tensorboard_logger.log_validation_metrics(
+                epoch=epoch,
+                val_loss=avg_loss,
+                val_accuracy=accuracy,
+                optimizer_name=optimizer_name
+            )
+        
+        return {
+            'loss': avg_loss,
+            'accuracy': accuracy
+        }
+    
+    def cleanup(self):
+        """Clean up experiment resources including TensorBoard logger."""
+        # Close TensorBoard logger
+        if self.tensorboard_logger:
+            self.tensorboard_logger.close()
+        
+        # Clean up optimizer if it has cleanup method
+        if hasattr(self.optimizer, 'shutdown'):
+            self.optimizer.shutdown()

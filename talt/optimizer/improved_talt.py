@@ -813,3 +813,74 @@ class ImprovedTALTOptimizer:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def get_tensorboard_metrics(self) -> Dict[str, Any]:
+        """
+        Get current metrics for TensorBoard logging.
+        
+        Returns:
+            Dictionary containing current TALT metrics for TensorBoard
+        """
+        metrics = {}
+        
+        # Extract current eigenvalues
+        eigenvalue_data = {}
+        gradient_norms = {}
+        curvature_estimates = {}
+        gradient_transformations = {}
+        
+        for param_name, param_info in self.param_data.items():
+            # Current gradient norms
+            if 'gradient_norm_history' in param_info and param_info['gradient_norm_history']:
+                gradient_norms[param_name] = param_info['gradient_norm_history'][-1]
+            
+            # Current eigenvalues from recent gradient stats
+            if hasattr(self, '_visualization_data'):
+                viz_data = self._visualization_data
+                if 'gradient_stats' in viz_data and param_name in viz_data['gradient_stats']:
+                    stats = list(viz_data['gradient_stats'][param_name])
+                    if stats and isinstance(stats[-1], dict):
+                        stat_entry = stats[-1]
+                        if 'eigenvalues' in stat_entry:
+                            eigenvalue_data[param_name] = stat_entry['eigenvalues']
+                        
+                        # Calculate curvature estimate from eigenvalues
+                        if 'eigenvalues' in stat_entry:
+                            eigenvals = np.array(stat_entry['eigenvalues'])
+                            if len(eigenvals) > 0:
+                                curvature_estimates[param_name] = float(np.max(eigenvals))
+            
+            # Gradient transformation metrics
+            if param_info.get('transformation') is not None:
+                # Calculate transformation effect (simplified)
+                gradient_transformations[param_name] = {
+                    'has_transformation': 1.0,
+                    'transformation_norm': float(torch.norm(param_info['transformation']).item())
+                }
+        
+        # Add metrics to result
+        if eigenvalue_data:
+            metrics['eigenvalues'] = eigenvalue_data
+        if gradient_norms:
+            metrics['gradient_norms'] = gradient_norms
+        if curvature_estimates:
+            metrics['curvature_estimates'] = curvature_estimates
+        if gradient_transformations:
+            metrics['gradient_transformations'] = gradient_transformations
+        
+        # Valley detections from recent visualization data
+        recent_valley_detections = []
+        if hasattr(self, '_visualization_data') and 'valley_detections' in self._visualization_data:
+            # Get detections from last few steps
+            for detection in list(self._visualization_data['valley_detections'])[-5:]:
+                if isinstance(detection, (tuple, list)) and len(detection) >= 2:
+                    recent_valley_detections.append(detection)
+        
+        if recent_valley_detections:
+            metrics['valley_detections'] = recent_valley_detections
+        
+        # Bifurcations
+        if hasattr(self, 'bifurcations') and self.bifurcations:
+            metrics['bifurcations'] = list(self.bifurcations)
+        
+        return metrics
