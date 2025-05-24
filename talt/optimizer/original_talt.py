@@ -138,15 +138,17 @@ class TALTOptimizer:
                 return grad
                 
             # Convert to matrix G = [g₁, g₂, ..., gₖ]
-            grad_matrix = torch.stack(list(self.grad_memory[name]), dim=1)  # [d, k]
+            # FIX: Stack gradients as rows instead of columns for proper dimensions
+            grad_matrix = torch.stack(list(self.grad_memory[name]), dim=0)  # [k, d] instead of [d, k]
             
             # Center the gradients: Ḡ = G - mean(G)
-            grad_mean = grad_matrix.mean(dim=1, keepdim=True)
+            grad_mean = grad_matrix.mean(dim=0, keepdim=True)  # Mean along the sample dimension
             centered_grads = grad_matrix - grad_mean
             
             # Compute covariance matrix: C = ḠᵀḠ/(k-1)
-            k = centered_grads.shape[1]
-            covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)
+            k = centered_grads.shape[0]  # Number of samples
+            # FIX: Ensure proper matrix multiplication order for covariance
+            covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)  # [d, d]
             
             # Add regularization for numerical stability
             reg = 1e-6 * torch.eye(covariance.shape[0])
@@ -163,8 +165,9 @@ class TALTOptimizer:
                 self.principal_dirs[name] = eigenvectors.detach()
                 
                 # Project current gradient into eigenspace
+                # FIX: Ensure proper projection of current gradient
                 current_centered = flat_grad - grad_mean.squeeze()
-                coeffs = torch.matmul(eigenvectors.t(), current_centered.unsqueeze(1)).squeeze()
+                coeffs = torch.matmul(eigenvectors.t(), current_centered)
                 
                 # Transform coefficients based on eigenvalues
                 # High eigenvalues (high curvature) -> reduce step size
@@ -185,7 +188,7 @@ class TALTOptimizer:
                 transformed_coeffs = coeffs * scale_factors
                 
                 # Reconstruct gradient
-                transformed_grad = torch.matmul(eigenvectors, transformed_coeffs.unsqueeze(1)).squeeze()
+                transformed_grad = torch.matmul(eigenvectors, transformed_coeffs)
                 
                 # Add back the mean
                 transformed_grad = transformed_grad + grad_mean.squeeze()

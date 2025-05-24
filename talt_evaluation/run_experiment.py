@@ -27,44 +27,44 @@ if talt_eval_dir not in sys.path:
 
 # Import project modules with better error handling
 try:
-    # Try relative imports first
+    # Use absolute imports instead of relative imports
+    from talt_evaluation.datasets import get_dataset
+    from talt_evaluation.models import get_architecture
+    from talt_evaluation.hyperparameter_tuning import TaltTuner
+    from talt_evaluation.visualization import create_training_report
+    from talt_evaluation.experiments import Experiment
+except ImportError as e:
+    # Fallback to direct imports
     try:
-        from .datasets import get_dataset
-        from .models import get_architecture
-        from .hyperparameter_tuning import TaltTuner
-        from .visualization import create_training_report
-        from .experiments import Experiment
-    except ImportError:
-        # Fallback to direct imports
         from datasets import get_dataset
         from models import get_architecture
         from hyperparameter_tuning import TaltTuner
         from visualization import create_training_report
         from experiments import Experiment
-except ImportError as e:
-    # Try importing from talt_evaluation package
-    try:
-        from talt_evaluation.datasets import get_dataset
-        from talt_evaluation.models import get_architecture
-        from talt_evaluation.hyperparameter_tuning import TaltTuner
-        from talt_evaluation.visualization import create_training_report
-        from talt_evaluation.experiments import Experiment
-    except ImportError as e2:
-        missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
-        print(f"Error: Missing required module '{missing_module}'. Please check your installation.")
-        print(f"Current working directory: {os.getcwd()}")
-        print(f"Script directory: {script_dir}")
-        print(f"Project root: {project_root}")
-        print(f"Python path: {sys.path}")
-        print(f"Primary error: {e}")
-        print(f"Secondary error: {e2}")
-        
-        # List available files for debugging
-        print("\nAvailable files in talt_evaluation directory:")
-        for file in os.listdir(talt_eval_dir):
-            print(f"  {file}")
-        
-        sys.exit(1)
+    except ImportError as e:
+        # Try importing from talt_evaluation package
+        try:
+            from talt_evaluation.datasets import get_dataset
+            from talt_evaluation.models import get_architecture
+            from talt_evaluation.hyperparameter_tuning import TaltTuner
+            from talt_evaluation.visualization import create_training_report
+            from talt_evaluation.experiments import Experiment
+        except ImportError as e2:
+            missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
+            print(f"Error: Missing required module '{missing_module}'. Please check your installation.")
+            print(f"Current working directory: {os.getcwd()}")
+            print(f"Script directory: {script_dir}")
+            print(f"Project root: {project_root}")
+            print(f"Python path: {sys.path}")
+            print(f"Primary error: {e}")
+            print(f"Secondary error: {e2}")
+            
+            # List available files for debugging
+            print("\nAvailable files in talt_evaluation directory:")
+            for file in os.listdir(talt_eval_dir):
+                print(f"  {file}")
+            
+            sys.exit(1)
 
 # Configure logging
 logging.basicConfig(
@@ -111,7 +111,7 @@ def parse_args():
                         choices=['cifar10', 'cifar100', 'glue-sst2', 'mnist'],
                         help='Dataset to use for training and evaluation')
     parser.add_argument('--optimizer', type=str, required=True, 
-                        choices=['talt', 'sgd', 'adam'],
+                        choices=['improved-talt', 'original-talt', 'sgd', 'adam'],
                         help='Optimizer to use for training')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
@@ -205,7 +205,7 @@ def main():
     }
     
     # Add TALT specific parameters if applicable
-    if args.optimizer == 'talt':
+    if args.optimizer in ['improved-talt', 'original-talt']:
         talt_params = {
             'projection_dim': args.projection_dim,
             'memory_size': args.memory_size,
@@ -220,8 +220,8 @@ def main():
         optimizer_config.update(talt_params)
     
     if args.tune_hyperparams:
-        if args.optimizer != 'talt':
-            logger.error("Hyperparameter tuning is only available for TALT optimizer")
+        if args.optimizer not in ['improved-talt', 'original-talt']:
+            logger.error("Hyperparameter tuning is only available for TALT optimizers")
             return
         
         # Configure hyperparameter tuning

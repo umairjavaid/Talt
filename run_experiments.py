@@ -144,7 +144,7 @@ def main():
                               choices=['cifar10', 'cifar100', 'glue-sst2', 'mnist'],
                               help='Dataset to use for training and evaluation')
     single_parser.add_argument('--optimizer', type=str, required=True, 
-                              choices=['talt', 'sgd', 'adam'],
+                              choices=['improved-talt', 'original-talt', 'sgd', 'adam'],
                               help='Optimizer to use for training')
     
     # Training parameters

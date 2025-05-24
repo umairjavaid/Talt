@@ -61,8 +61,19 @@ class TaltTuner:
         Returns:
             TALT optimizer instance
         """
-        # Import TALT optimizer
-        from talt.optimizer import ImprovedTALTOptimizer as TALT
+        # Import TALT optimizer based on model configuration
+        if hasattr(self.model, 'model_type') and self.model.model_type == 'llm':
+            # For LLM models, default to improved version
+            from talt.optimizer import ImprovedTALTOptimizer as TALT
+            is_improved = True
+        else:
+            # Check if we're using study_name to determine TALT version
+            if 'original' in self.study_name.lower():
+                from talt.optimizer.original_talt import TALTOptimizer as TALT
+                is_improved = False
+            else:
+                from talt.optimizer.improved_talt import ImprovedTALTOptimizer as TALT
+                is_improved = True
         
         # Fixed parameters for base optimizer
         base_params = {
@@ -106,6 +117,19 @@ class TaltTuner:
             momentum=base_params['momentum'], 
             weight_decay=base_params['weight_decay']
         )
+        
+        # Adapt parameter names for original TALT if needed
+        if not is_improved:
+            if 'memory_size' in talt_params:
+                talt_params['eigenspace_memory_size'] = talt_params.pop('memory_size')
+            if 'update_interval' in talt_params:
+                talt_params['topology_update_interval'] = talt_params.pop('update_interval')
+            if 'adaptive_reg' in talt_params:
+                # Original TALT doesn't use adaptive_reg, so remove it
+                talt_params.pop('adaptive_reg', None)
+            if 'cov_decay' in talt_params:
+                # Original TALT doesn't use cov_decay, so remove it
+                talt_params.pop('cov_decay', None)
         
         # Create optimizer with properly separated parameters
         optimizer = TALT(

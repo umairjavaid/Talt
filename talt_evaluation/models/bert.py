@@ -55,7 +55,7 @@ class BERTModel(nn.Module):
                 'weight_decay': 0.01,
                 'eps': 1e-8
             },
-            'talt': {
+            'improved-talt': {
                 'lr': 2e-5,
                 'projection_dim': 64,
                 'memory_size': 10,
@@ -65,6 +65,15 @@ class BERTModel(nn.Module):
                 'grad_store_interval': 10,
                 'cov_decay': 0.99,
                 'adaptive_reg': True
+            },
+            'original-talt': {
+                'lr': 2e-5,
+                'memory_size': 10,
+                'update_interval': 50,
+                'valley_strength': 0.1,
+                'smoothing_factor': 0.5,
+                'grad_store_interval': 10,
+                'min_param_size': 20
             }
         }
     

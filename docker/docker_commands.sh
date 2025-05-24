@@ -89,6 +89,24 @@ quick_test() {
         --epochs 1 --batch-size 32
 }
 
+# Function to run improved TALT experiment
+run_improved_talt() {
+    echo -e "${YELLOW}Running Improved TALT experiment...${NC}"
+    docker run --rm ${DOCKER_GPU_FLAGS} \
+        -v $(pwd)/results:/app/results \
+        -v $(pwd)/data:/app/data \
+        talt:latest python run_experiments.py single --optimizer improved-talt "$@"
+}
+
+# Function to run original TALT experiment
+run_original_talt() {
+    echo -e "${YELLOW}Running Original TALT experiment...${NC}"
+    docker run --rm ${DOCKER_GPU_FLAGS} \
+        -v $(pwd)/results:/app/results \
+        -v $(pwd)/data:/app/data \
+        talt:latest python run_experiments.py single --optimizer original-talt "$@"
+}
+
 # Usage examples
 usage() {
     echo "Optimized TALT Docker Commands:"
@@ -98,19 +116,49 @@ usage() {
     echo "  ./docker_commands.sh quick_test     - Quick TALT test"
     echo "  ./docker_commands.sh shell          - Interactive shell"
     echo ""
+    echo "TALT version commands:"
+    echo "  ./docker_commands.sh improved_talt  - Run with improved TALT"
+    echo "  ./docker_commands.sh original_talt  - Run with original TALT"
+    echo ""
     echo "Standard commands (now optimized):"
-    echo "  ./docker_commands.sh run --architecture resnet18 --dataset cifar10 --optimizer talt"
+    echo "  ./docker_commands.sh run --architecture resnet18 --dataset cifar10 --optimizer improved-talt"
     echo "  ./docker_commands.sh batch --config batch_configs/cnn_comparison.json"
 }
+  ;;
+case "$1" in)
+    build)st_cuda
+        build_image    ;;
 
-case "$1" in
-    build)
-        build_image
-        ;;
-    test_cuda)
-        test_cuda
-        ;;
-    quick_test)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+esac        ;;        usage    *)        ;;        run_batch "$@"        shift    batch)        ;;        run_experiment "$@"        shift    run)        ;;        run_original_talt "$@"        shift    original_talt)        ;;        run_improved_talt "$@"        shift    improved_talt)        ;;        start_shell    shell)        ;;        quick_test    quick_test)        ;;        test_cuda    test_cuda)        ;;    quick_test)
         quick_test
         ;;
     shell)

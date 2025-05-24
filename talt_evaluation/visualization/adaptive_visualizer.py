@@ -461,6 +461,9 @@ class AdaptiveVisualizer:
                 if optimizer is None:
                     optimizer = additional_data.get('talt_optimizer')
             
+            # Determine optimizer type for appropriate visualization
+            optimizer_type = experiment_data.get('optimizer_type', '')
+            
             # Run diagnostics if available
             if optimizer and hasattr(optimizer, 'diagnose_visualization_state'):
                 logger.info("Running TALT diagnostics...")

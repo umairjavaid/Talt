@@ -103,14 +103,14 @@ class Experiment:
         Returns:
             torch.optim.Optimizer: The initialized optimizer
         """
-        if self.optimizer_type == 'talt':
+        if self.optimizer_type == 'improved-talt':
             try:
                 from talt.optimizer.improved_talt import ImprovedTALTOptimizer as TALT
             except ImportError as e:
-                logger.error(f"TALT optimizer not available: {e}")
-                raise ImportError("Ensure the TALT optimizer is correctly installed and accessible.")
+                logger.error(f"Improved TALT optimizer not available: {e}")
+                raise ImportError("Ensure the Improved TALT optimizer is correctly installed and accessible.")
             except Exception as e:
-                logger.error(f"Error creating TALT optimizer: {e}")
+                logger.error(f"Error creating Improved TALT optimizer: {e}")
                 raise
             
             try:
@@ -148,10 +148,59 @@ class Experiment:
                     base_optimizer=base_optimizer,
                     **talt_params
                 )
-                logger.info("Created TALT optimizer with properly separated parameters")
+                logger.info("Created Improved TALT optimizer with properly separated parameters")
             except Exception as e:
-                logger.error(f"Error creating TALT optimizer: {e}")
+                logger.error(f"Error creating Improved TALT optimizer: {e}")
                 raise
+
+        elif self.optimizer_type == 'original-talt':
+            try:
+                from talt.optimizer.original_talt import TALTOptimizer as OriginalTALT
+            except ImportError as e:
+                logger.error(f"Original TALT optimizer not available: {e}")
+                raise ImportError("Ensure the Original TALT optimizer is correctly installed and accessible.")
+            except Exception as e:
+                logger.error(f"Error creating Original TALT optimizer: {e}")
+                raise
+            
+            try:
+                # Extract base optimizer parameters
+                base_optimizer_config = {
+                    'momentum': self.optimizer_config.get('momentum', 0.9),
+                    'weight_decay': self.optimizer_config.get('weight_decay', 5e-4)
+                }
+                
+                # Extract TALT-specific parameters
+                talt_params = {
+                    'lr': self.optimizer_config.get('lr', 0.01),
+                    'eigenspace_memory_size': self.optimizer_config.get('memory_size', 10),
+                    'topology_update_interval': self.optimizer_config.get('update_interval', 20),
+                    'valley_strength': self.optimizer_config.get('valley_strength', 0.1),
+                    'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.3),
+                    'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
+                    'min_param_size': self.optimizer_config.get('min_param_size', 10),
+                    'device': self.device
+                }
+                
+                # Create base optimizer factory
+                base_optimizer = lambda params, lr: torch.optim.SGD(
+                    params, 
+                    lr=lr,
+                    momentum=base_optimizer_config['momentum'],
+                    weight_decay=base_optimizer_config['weight_decay']
+                )
+                
+                # Create original TALT optimizer
+                optimizer = OriginalTALT(
+                    model=self.model,
+                    base_optimizer=base_optimizer,
+                    **talt_params
+                )
+                logger.info("Created Original TALT optimizer")
+            except Exception as e:
+                logger.error(f"Error creating Original TALT optimizer: {e}")
+                raise
+        
         elif self.optimizer_type == 'sgd':
             try:
                 optimizer = torch.optim.SGD(
@@ -213,7 +262,7 @@ class Experiment:
         
         for batch_idx, batch in enumerate(pbar):
             try:
-                if self.optimizer_type == 'talt':
+                if self.optimizer_type in ['improved-talt', 'original-talt']:
                     # Handle batch format for TALT optimizer - convert list to tuple if needed
                     if isinstance(batch, list) and len(batch) == 2:
                         # Convert list to tuple format
@@ -528,17 +577,12 @@ class Experiment:
         
         checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch}.pt')
         torch.save(checkpoint, checkpoint_path)
+        logger.info(f"Saved checkpoint to {checkpoint_path}")
         
         if is_best:
             best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
             torch.save(checkpoint, best_model_path)
             logger.info(f"Saved best model checkpoint to {best_model_path}")
-        else:
-            logger.info(f"Saved checkpoint to {checkpoint_path}")
-    
-    def _save_results(self):
-        """Save results to JSON file."""
-        results_path = os.path.join(self.output_dir, 'results.json')
         
         # Create a deep copy of results for serialization
         serializable_results = {}
@@ -588,3 +632,22 @@ class Experiment:
         logger.info(f"Loaded checkpoint from {checkpoint_path} at epoch {checkpoint['epoch']+1}")
         
         return checkpoint['epoch']
+    
+    def _save_results(self):
+        """
+        Save experiment results to a JSON file.
+        """
+        results_path = os.path.join(self.output_dir, 'results.json')
+        serializable_results = {}
+
+        # Convert non-serializable objects to serializable formats
+        for key, value in self.results.items():
+            if isinstance(value, np.ndarray):
+                serializable_results[key] = value.tolist()
+            else:
+                serializable_results[key] = value
+
+        with open(results_path, 'w') as f:
+            json.dump(serializable_results, f, indent=2)
+        
+        logger.info(f"Saved results to {results_path}")

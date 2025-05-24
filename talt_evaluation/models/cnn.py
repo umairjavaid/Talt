@@ -55,7 +55,7 @@ class SimpleCNN(nn.Module):
                 'weight_decay': 5e-4,
                 'momentum': 0.9
             },
-            'talt': {
+            'improved-talt': {
                 'lr': 0.01,
                 'projection_dim': 16,
                 'memory_size': 8,
@@ -65,6 +65,15 @@ class SimpleCNN(nn.Module):
                 'grad_store_interval': 5,
                 'cov_decay': 0.95,
                 'adaptive_reg': True
+            },
+            'original-talt': {
+                'lr': 0.01,
+                'memory_size': 8,
+                'update_interval': 25,
+                'valley_strength': 0.1,
+                'smoothing_factor': 0.3,
+                'grad_store_interval': 5,
+                'min_param_size': 10
             }
         }
     
