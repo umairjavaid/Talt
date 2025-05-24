@@ -81,15 +81,34 @@ class TALTOptimizer:
         }
         
         # Register gradient hooks for parameters above size threshold
+        registered_params = 0
+        total_params = 0
+        
+        # Make threshold adaptive for better coverage
+        total_model_params = sum(p.numel() for p in model.parameters())
+        adaptive_threshold = max(10, min(self.min_param_size, int(total_model_params * 0.001)))
+        
+        logger.info(f"Original TALT initialized: memory_size={eigenspace_memory_size}, update_interval={topology_update_interval}")
+        logger.info(f"Model has {total_model_params} total parameters")
+        logger.info(f"Using adaptive threshold: {adaptive_threshold} (original: {self.min_param_size})")
+        
         for name, param in model.named_parameters():
-            if param.requires_grad and param.numel() > self.min_param_size:
+            total_params += 1
+            if param.requires_grad and param.numel() > adaptive_threshold:
+                registered_params += 1
                 self.grad_memory[name] = deque(maxlen=self.memory_size)
                 self.principal_dirs[name] = None
                 self.eigenvalues[name] = None
                 self._visualization_data['eigenvalues'][name] = []
                 
+                logger.debug(f"Registered Original TALT hook for {name} (size: {param.numel()})")
+                
                 # Hook transforms gradients using eigenspace analysis
                 param.register_hook(lambda grad, name=name: self._transform_gradient(grad, name))
+        
+        logger.info(f"Original TALT: Registered hooks for {registered_params}/{total_params} parameters")
+        if registered_params == 0:
+            logger.warning("No parameters registered for Original TALT! Consider lowering min_param_size.")
 
     def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
         """
@@ -104,6 +123,10 @@ class TALTOptimizer:
         """
         if name not in self.grad_memory:
             return grad
+        
+        # Log gradient transform calls periodically
+        if self.steps % 50 == 0:
+            logger.debug(f"Original TALT gradient transform called for {name} at step {self.steps}")
             
         try:
             # Store gradient in memory
@@ -132,6 +155,8 @@ class TALTOptimizer:
             # Eigendecomposition: C = VΛVᵀ
             try:
                 eigenvalues, eigenvectors = torch.linalg.eigh(covariance)
+                
+                logger.debug(f"Original TALT computed {len(eigenvalues)} eigenvalues for {name}")
                 
                 # Store eigenvalues for visualization
                 self.eigenvalues[name] = eigenvalues.detach()
@@ -167,11 +192,9 @@ class TALTOptimizer:
                 
                 # Store visualization data
                 if len(self._visualization_data['eigenvalues'][name]) < 1000:  # Limit storage
-                    self._visualization_data['eigenvalues'][name].append({
-                        'step': self.steps,
-                        'eigenvalues': eigenvalues.detach().cpu().numpy(),
-                        'grad_norm': torch.norm(flat_grad).item()
-                    })
+                    self._visualization_data['eigenvalues'][name].append(
+                        (self.steps, eigenvalues.detach().cpu().numpy())
+                    )
                 
                 return transformed_grad.view_as(grad).to(grad.device)
                 
@@ -370,13 +393,27 @@ class TALTOptimizer:
 
     def get_visualization_data(self):
         """Get visualization data for external analysis."""
-        return {
+        logger.info("Collecting Original TALT visualization data...")
+        
+        # Log data availability
+        for name, eig_data in self._visualization_data['eigenvalues'].items():
+            logger.debug(f"{name}: {len(eig_data)} eigenvalue snapshots")
+        
+        viz_data = {
             'loss_values': self._visualization_data['loss_values'],
             'bifurcation_points': self._visualization_data['bifurcation_points'],
             'eigenvalues': self._visualization_data['eigenvalues'],
             'bifurcations': self.bifurcations,
-            'loss_history': self.loss_history
+            'loss_history': self.loss_history,
+            'grad_memory': self.grad_memory
         }
+        
+        logger.info(f"Original TALT visualization data collected: "
+                    f"{len(viz_data['eigenvalues'])} params with eigenvalues, "
+                    f"{len(viz_data['bifurcations'])} bifurcations, "
+                    f"{len(viz_data['loss_history'])} loss values")
+        
+        return viz_data
 
     def _print_progress(self, loss_value: float, step: int) -> None:
         """Print training progress information."""

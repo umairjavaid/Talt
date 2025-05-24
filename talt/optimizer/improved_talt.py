@@ -147,8 +147,22 @@ class ImprovedTALTOptimizer:
         self.param_data = {}
 
         # Register hooks for parameters of sufficient size
+        registered_params = 0
+        total_params = 0
+        
+        # Make threshold adaptive based on model size for better coverage
+        total_model_params = sum(p.numel() for p in model.parameters())
+        adaptive_threshold = max(10, min(self.min_param_size, int(total_model_params * 0.001)))
+        
+        logger.info(f"TALT initialized with projection_dim={projection_dim}, memory_size={memory_size}, update_interval={update_interval}")
+        logger.info(f"Model has {total_model_params} total parameters")
+        logger.info(f"Using adaptive threshold: {adaptive_threshold} (original: {self.min_param_size})")
+        
         for name, p in model.named_parameters():
-            if p.requires_grad and p.numel() > self.min_param_size:
+            total_params += 1
+            if p.requires_grad and p.numel() > adaptive_threshold:
+                registered_params += 1
+                
                 # Create dimension-reduced representation
                 dim = p.numel()
                 target_dim = min(self.projection_dim, dim // 4)  # No more than 1/4 of original
@@ -165,8 +179,14 @@ class ImprovedTALTOptimizer:
 
                 self._visualization_data['gradient_stats'][name] = deque(maxlen=max_visualization_points)
 
+                logger.debug(f"Registered TALT hook for {name} (size: {p.numel()}, proj_dim: {target_dim})")
+                
                 # Register gradient hook
                 p.register_hook(lambda grad, name=name: self._transform_gradient(grad, name))
+        
+        logger.info(f"TALT: Registered hooks for {registered_params}/{total_params} parameters")
+        if registered_params == 0:
+            logger.warning("No parameters registered for TALT! Consider lowering min_param_size.")
 
     def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
         """
@@ -182,6 +202,10 @@ class ImprovedTALTOptimizer:
         if name not in self.param_data:
             return grad
 
+        # Log gradient transform calls periodically
+        if self.steps % 50 == 0:
+            logger.debug(f"TALT gradient transform called for {name} at step {self.steps}")
+
         # Make a copy of original gradient
         orig_grad = grad.clone()
 
@@ -189,6 +213,7 @@ class ImprovedTALTOptimizer:
         with self._state_lock:
             if name in self._pending_updates:
                 # Skip transformation during update
+                logger.debug(f"Skipping transform for {name} (update in progress)")
                 return grad
 
             # Get parameter data safely
@@ -218,7 +243,9 @@ class ImprovedTALTOptimizer:
             # Check for valleys with proper null handling
             is_valley, valley_dir = param_info['valley_detector'].detect_valley()
 
-            if is_valley and valley_dir is not None:
+            if is_valley:
+                logger.debug(f"Valley detected for {name} at step {self.steps}")
+                
                 # Thread-safe bifurcation recording
                 with self._state_lock:
                     if len(self.bifurcations) < self.max_stored_steps:
@@ -228,14 +255,15 @@ class ImprovedTALTOptimizer:
                         (self.steps, name, 'valley')
                     )
 
-                # Apply valley transformation with clipping
-                valley_dir = valley_dir.to(flat_grad.device)
-                valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
-                
-                # Clip valley component to prevent gradient explosion
-                valley_component = torch.clamp(valley_component, -10.0, 10.0)
-                
-                flat_grad = flat_grad + self.valley_strength * valley_component
+                # Apply valley transformation with clipping if valley_dir exists
+                if valley_dir is not None:
+                    valley_dir = valley_dir.to(flat_grad.device)
+                    valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
+                    
+                    # Clip valley component to prevent gradient explosion
+                    valley_component = torch.clamp(valley_component, -10.0, 10.0)
+                    
+                    flat_grad = flat_grad + self.valley_strength * valley_component
 
             # Apply curvature-based transformation
             transformed_grad = torch.matmul(transformation, flat_grad.unsqueeze(1)).squeeze(1)
@@ -273,9 +301,16 @@ class ImprovedTALTOptimizer:
 
     def _update_topology(self) -> None:
         """Update topology information for all tracked parameters."""
+        logger.info(f"TALT topology update triggered at step {self.steps}")
+        
+        updated_params = 0
         for name, param_info in self.param_data.items():
+            grad_history_size = len(param_info['gradient_norm_history'])
+            logger.debug(f"  {name}: {grad_history_size} gradients in history")
+            
             # Skip if not enough data
-            if len(param_info['gradient_norm_history']) < 3:
+            if grad_history_size < 3:
+                logger.debug(f"  {name}: Insufficient gradient history ({grad_history_size} < 3)")
                 continue
 
             try:
@@ -289,13 +324,17 @@ class ImprovedTALTOptimizer:
                         condition_number = torch.abs(eigenvals[-1] / eigenvals[0]) if eigenvals[0] != 0 else 1e12
                         reg = max(1e-6, min(1e-2, 1e-5 * condition_number))
                         cov = cov + reg * torch.eye(cov.shape[0], device=cov.device)
+                        logger.debug(f"  {name}: Applied adaptive regularization {reg:.2e}")
                     except RuntimeError:
                         # Fallback: add standard regularization
                         cov = cov + 1e-6 * torch.eye(cov.shape[0], device=cov.device)
+                        logger.debug(f"  {name}: Applied fallback regularization")
 
                 # Use power iteration for more stable eigendecomposition
                 power_iter = PowerIteration(max_iter=20, tol=1e-5)
                 eigenvalues, eigenvectors = power_iter.compute_eigenpairs(cov, k=min(5, cov.shape[0]))
+
+                logger.debug(f"  {name}: Computed {len(eigenvalues)} eigenvalues: {eigenvalues[:3].tolist()}")
 
                 # Create transformation matrix for gradient adjustment
                 # This is like a preconditioner based on the eigenstructure
@@ -319,13 +358,16 @@ class ImprovedTALTOptimizer:
                 # Store transformation matrix
                 param_info['transformation'] = transform.to(self.device)
 
-                # Store top eigenvalues for visualization if needed
+                # Store top eigenvalues for visualization
                 top_vals = eigenvalues[:min(3, len(eigenvalues))].detach().cpu().numpy()
                 self._visualization_data['gradient_stats'][name].append({
                     'step': self.steps,
                     'eigenvalues': top_vals,
                     'grad_norm': np.mean([n for n in param_info['gradient_norm_history']])
                 })
+
+                updated_params += 1
+                logger.debug(f"  {name}: Successfully updated transformation matrix")
 
                 # Clean up to avoid memory leaks
                 del cov, eigenvalues, eigenvectors, transform
@@ -339,6 +381,8 @@ class ImprovedTALTOptimizer:
                 logger.warning(f"Value error updating topology for {name}: {e}")
             except Exception as e:
                 logger.warning(f"Unexpected error updating topology for {name}: {e}")
+        
+        logger.info(f"TALT topology update completed: {updated_params}/{len(self.param_data)} parameters updated")
 
     def step(self, loss_fn: Callable, x: Union[torch.Tensor, Dict[str, torch.Tensor], Tuple, List], 
              y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
@@ -567,8 +611,50 @@ class ImprovedTALTOptimizer:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    def diagnose_visualization_state(self):
+        """Print diagnostic information about TALT state for debugging."""
+        print("\n=== TALT Diagnostic Report ===")
+        print(f"Steps completed: {self.steps}")
+        print(f"Parameters tracked: {len(self.param_data)}")
+        print(f"Update interval: {self.update_interval}, Store interval: {self.store_interval}")
+        
+        for name, info in self.param_data.items():
+            print(f"\n{name}:")
+            print(f"  Gradient norms collected: {len(info['gradient_norm_history'])}")
+            print(f"  Covariance updates: {info['covariance'].count}")
+            print(f"  Has transformation: {info.get('transformation') is not None}")
+            valley_detections = [d for d in self._visualization_data['valley_detections'] if d[1] == name]
+            print(f"  Valley detections: {len(valley_detections)}")
+        
+        print(f"\nTotal bifurcations: {len(self.bifurcations)}")
+        print(f"Total valley detections: {len(self._visualization_data['valley_detections'])}")
+        print(f"Visualization data keys: {list(self._visualization_data.keys())}")
+        
+        # Check visualization stats
+        total_viz_stats = sum(len(stats) for stats in self._visualization_data['gradient_stats'].values())
+        print(f"Total visualization stats collected: {total_viz_stats}")
+        print("===========================\n")
+
+    def force_topology_update(self):
+        """Force immediate topology update for testing/debugging."""
+        logger.info("Forcing TALT topology update...")
+        with self._state_lock:
+            # Clear pending updates to allow forced update
+            self._pending_updates.clear()
+            self._update_in_progress = False
+        self._update_topology()
+
     def get_visualization_data(self):
         """Get visualization data for external analysis."""
+        logger.info("Collecting TALT visualization data...")
+        
+        # Check each data structure
+        for name, param_info in self.param_data.items():
+            if param_info['gradient_norm_history']:
+                logger.debug(f"{name}: {len(param_info['gradient_norm_history'])} gradient norms")
+            if param_info.get('transformation') is not None:
+                logger.debug(f"{name}: Transformation matrix exists")
+        
         viz_data = {
             'loss_values': list(self._visualization_data['loss_values']),
             'loss_history': list(self.loss_history),
@@ -627,6 +713,14 @@ class ImprovedTALTOptimizer:
                     # Generate steps if not available
                     if 'steps' not in viz_data['gradient_norms_history'][param_name]:
                         viz_data['gradient_norms_history'][param_name]['steps'] = list(range(len(param_norms)))
+        
+        # Log summary
+        logger.info(f"TALT visualization data collected: "
+                    f"{len(viz_data['gradient_stats'])} params with stats, "
+                    f"{len(viz_data['eigenvalues_history'])} params with eigenvalues, "
+                    f"{len(viz_data['gradient_norms_history'])} params with gradient norms, "
+                    f"{len(viz_data['valley_detections'])} valley detections, "
+                    f"{len(viz_data['bifurcations'])} bifurcations")
         
         return viz_data
 

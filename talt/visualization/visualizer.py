@@ -1,23 +1,22 @@
 """Visualization module for the TALT optimizer."""
-from typing import Dict, List, Any, Optional
-from collections import deque
 import os
 import logging
+import numpy as np
+from collections import deque
+from pathlib import Path
+from typing import Dict, List, Optional, Any
 
-# Import plotting libraries with proper error handling
+# Import visualization libraries with fallback handling
 try:
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib.animation import FuncAnimation
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
-    MATPLOTLIB_AVAILABLE = False
     plt = None
     sns = None
     FuncAnimation = None
-
-import numpy as np
-from pathlib import Path
+    MATPLOTLIB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -398,142 +397,79 @@ class TALTVisualizer:
             return
         
         if data_key not in self.data or not self.data[data_key]:
-            logger.info(f"No data available for key '{data_key}' to animate.")
+            logger.info(f"No data available for animation key: {data_key}")
             return
-
+            
         fig, ax = plt.subplots()
         data_to_animate = list(self.data[data_key])
         if not data_to_animate:
-            logger.info("No data points available for animation.")
+            logger.info(f"Empty data for animation key: {data_key}")
             return
             
         line, = ax.plot([], [], lw=2)
-        ax.set_xlim(0, len(data_to_animate) -1 if len(data_to_animate) > 1 else 1) # Adjust xlim for single point
+        ax.set_xlim(0, len(data_to_animate) -1 if len(data_to_animate) > 1 else 1)
         
         min_val = min(data_to_animate)
         max_val = max(data_to_animate)
-        padding = (max_val - min_val) * 0.1 if (max_val - min_val) > 0 else 0.1 # Handle case where all values are same
+        padding = (max_val - min_val) * 0.1 if (max_val - min_val) > 0 else 0.1
         ax.set_ylim(min_val - padding, max_val + padding)
 
         ax.set_title(f"{data_key.replace('_', ' ').title()} Over Time")
         ax.set_xlabel("Step")
-        ax.set_ylabel(data_key.replace('_', ' ').title())
+        ax.set_ylabel("Value")
+        ax.grid(True, alpha=0.3)
 
-        def init():
-            line.set_data([], [])
-            return line,
-
-        def animate(i):
-            x = list(range(i + 1))
-            y = data_to_animate[:i + 1]
-            line.set_data(x, y)
+        def animate(frame):
+            x_data = list(range(frame + 1))
+            y_data = data_to_animate[:frame + 1]
+            line.set_data(x_data, y_data)
             return line,
 
         try:
-            anim = FuncAnimation(fig, animate, init_func=init,
-                                 frames=len(data_to_animate), interval=max(1, 1000//fps), blit=True)
+            anim = FuncAnimation(fig, animate, frames=len(data_to_animate), 
+                               interval=1000//fps, blit=True, repeat=False)
             
-            animation_save_path = os.path.join(self.output_dir, save_path)
-            anim.save(animation_save_path, writer='ffmpeg', fps=fps)
-            logger.info(f"Animation saved to {animation_save_path}")
+            full_save_path = os.path.join(self.output_dir, save_path)
+            anim.save(full_save_path, writer='ffmpeg', fps=fps)
+            logger.info(f"Animation saved to {full_save_path}")
+            
         except Exception as e:
-            logger.error(f"Failed to create animation: {e}. Ensure ffmpeg is installed and in PATH.")
+            logger.error(f"Failed to create animation: {e}")
         finally:
             plt.close(fig)
 
-    def generate_report(self, experiment_name: str = "TALT_Experiment", 
-                        include_plots: Optional[List[str]] = None) -> None:
-        """
-        Generates a simple HTML report with key visualizations.
-        'include_plots' can specify which plots to generate and embed, e.g.,
-        ['loss_trajectory', 'eigenvalue_spectra', 'gradient_transformations']
-        """
+    def generate_comprehensive_report(self, save_path: Optional[str] = None) -> None:
+        """Generate a comprehensive visualization report with all available plots."""
         if not self._check_matplotlib():
-            logger.error("Cannot generate report without Matplotlib/Seaborn.")
             return
             
-        if include_plots is None:
-            include_plots = ['loss_trajectory', 'loss_landscape_with_valleys', 'gradient_transformations', 'eigenvalue_spectra']
-
-        report_path = os.path.join(self.output_dir, f"{experiment_name}_report.html")
+        report_dir = self.output_dir if save_path is None else Path(save_path).parent
+        report_name = "talt_comprehensive_report" if save_path is None else Path(save_path).stem
         
-        with open(report_path, 'w') as f:
-            f.write(f"<html><head><title>{experiment_name} Report</title></head><body>")
-            f.write(f"<h1>Report for {experiment_name}</h1>")
-
-            # Generate and embed plots
-            if 'loss_trajectory' in include_plots:
-                loss_path = f"{experiment_name}_loss_trajectory.png"
-                self.visualize_loss_trajectory(save_path=loss_path, show=False)
-                if os.path.exists(os.path.join(self.output_dir, loss_path)):
-                    f.write(f'<h2>Loss Trajectory</h2><img src="{loss_path}" alt="Loss Trajectory"><br>')
-
-            if 'loss_landscape_with_valleys' in include_plots:
-                loss_land_path = f"{experiment_name}_loss_landscape.png"
-                self.visualize_loss_landscape_with_valleys(save_path=loss_land_path, show=False)
-                if os.path.exists(os.path.join(self.output_dir, loss_land_path)):
-                    f.write(f'<h2>Loss Landscape with Valleys</h2><img src="{loss_land_path}" alt="Loss Landscape"><br>')
+        # Generate all individual visualizations
+        try:
+            self.visualize_loss_trajectory(
+                save_path=f"{report_name}_loss_trajectory.png",
+                show=False
+            )
+            self.visualize_eigenvalue_spectra(
+                save_path=f"{report_name}_eigenvalue_spectra.png", 
+                show=False
+            )
+            self.visualize_gradient_norm_history(
+                save_path=f"{report_name}_gradient_norms.png",
+                show=False
+            )
+            self.visualize_gradient_transformations(
+                save_path=f"{report_name}_gradient_transformations.png",
+                show=False
+            )
+            self.visualize_loss_landscape_with_valleys(
+                save_path=f"{report_name}_loss_landscape.png",
+                show=False
+            )
             
-            if 'gradient_transformations' in include_plots:
-                grad_trans_path = f"{experiment_name}_grad_transformations.png"
-                self.visualize_gradient_transformations(save_path=grad_trans_path, show=False)
-                if os.path.exists(os.path.join(self.output_dir, grad_trans_path)):
-                    f.write(f'<h2>Gradient Transformations</h2><img src="{grad_trans_path}" alt="Gradient Transformations"><br>')
-
-            if 'eigenvalue_spectra' in include_plots and self.data.get('eigenvalues_history'):
-                eigen_path = f"{experiment_name}_eigenvalues.png"
-                # Updated to use parameter_name instead of param_names
-                param_to_plot = next(iter(self.data['eigenvalues_history']), None)
-                if param_to_plot:
-                    self.visualize_eigenvalue_spectra(parameter_name=param_to_plot, save_path=eigen_path, show=False)
-                    if os.path.exists(os.path.join(self.output_dir, eigen_path)):
-                        f.write(f'<h2>Eigenvalue Spectra</h2><img src="{eigen_path}" alt="Eigenvalue Spectra"><br>')
+            logger.info(f"Comprehensive TALT visualization report generated in {report_dir}")
             
-            f.write("</body></html>")
-        logger.info(f"Report generated at {report_path}")
-
-# Example usage (for testing this file directly):
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    vis = TALTVisualizer(output_dir="./talt_visualizations_output")
-
-    if MATPLOTLIB_AVAILABLE:
-        optimizer_data_example = {
-            'loss_values': deque([10, 8, 6, 5, 4.5, 4, 3.8, 3.5, 3.4, 3.3] * 3, maxlen=vis.max_points),
-            'valley_detections': [5, 15],
-            'bifurcations': [7, 17],
-            'loss_history': [10, 8, 6, 5, 4.5, 4, 3.8, 3.5, 3.4, 3.3] * 3,
-            'grad_memory': {
-                'layer1.weight': [(i*2, np.random.rand()*0.5, np.random.rand()) for i in range(10)],
-                'layer1.bias': [(i*2, np.random.rand()*0.2, np.random.rand()*0.5) for i in range(10)]
-            },
-            'eigenvalues': { 
-                'layer1.weight': [(i*2, np.sort(np.random.rand(5))[::-1]*10) for i in range(10)],
-                'layer2.weight': [(i*2, np.sort(np.random.rand(5))[::-1]*5) for i in range(10)]
-            },
-            'gradient_stats': {
-                'fc.weight': [np.random.rand() for _ in range(30)],
-                'conv1.weight': [np.random.rand()*0.5 for _ in range(30)]
-            }
-        }
-        vis.add_optimizer_data(optimizer_data_example)
-
-        vis.visualize_loss_trajectory(save_path="loss_traj.png", show=False)
-        vis.visualize_loss_landscape_with_valleys(save_path="loss_landscape.png", show=False)
-        vis.visualize_gradient_transformations(save_path="grad_transform.png", show=False)
-        vis.visualize_eigenvalue_spectra(save_path="eigen_spectra.png", show=False)
-        vis.visualize_gradient_norm_history(save_path="grad_norm_hist.png", show=False)
-
-        std_data = {'train_loss': [1, 0.8, 0.6, 0.5, 0.4], 'test_acc': [0.5, 0.6, 0.7, 0.72, 0.75]}
-        talt_data = {'train_loss': [0.9, 0.7, 0.5, 0.4, 0.3], 'test_acc': [0.55, 0.65, 0.75, 0.77, 0.8]}
-        vis.plot_optimizer_comparison(std_data, talt_data, save_path="optimizer_comp.png", show=False)
-        
-        vis.create_animation(data_key='loss_values', save_path="loss_animation.mp4")
-        vis.generate_report(experiment_name="Test_TALT_Run")
-
-        print(f"All visualizations saved in {vis.output_dir}")
-    else:
-        print("Matplotlib/Seaborn not available, skipping direct visualization tests.")
-        # You can still test data addition and other non-plotting logic
-        vis.add_optimizer_data({'loss_values': deque([1,2,3])})
-        print(f"Data added: {vis.data['loss_values']}")
+        except Exception as e:
+            logger.error(f"Error generating comprehensive report: {e}")

@@ -461,9 +461,23 @@ class AdaptiveVisualizer:
                 if optimizer is None:
                     optimizer = additional_data.get('talt_optimizer')
             
+            # Run diagnostics if available
+            if optimizer and hasattr(optimizer, 'diagnose_visualization_state'):
+                logger.info("Running TALT diagnostics...")
+                optimizer.diagnose_visualization_state()
+            
+            # Force topology update if we have very little data
+            if optimizer and hasattr(optimizer, 'force_topology_update'):
+                viz_data = optimizer.get_visualization_data() if hasattr(optimizer, 'get_visualization_data') else {}
+                total_data_points = sum(len(v) if hasattr(v, '__len__') else 0 for v in viz_data.values())
+                
+                if total_data_points < 10:  # Very little data collected
+                    logger.info("Insufficient TALT data detected, forcing topology update...")
+                    optimizer.force_topology_update()
+            
             # If we have an ImprovedTALTOptimizer instance, extract its data
             if optimizer and hasattr(optimizer, '_visualization_data'):
-                logger.info("Extracting data from ImprovedTALTOptimizer instance")
+                logger.info("Extracting data from TALT optimizer instance")
                 
                 # Use the optimizer's get_visualization_data method if available
                 if hasattr(optimizer, 'get_visualization_data'):
@@ -561,7 +575,15 @@ class AdaptiveVisualizer:
                 logger.info(f"Successfully extracted TALT data with keys: {list(talt_data.keys())}")
                 for key, value in talt_data.items():
                     if isinstance(value, (list, dict)):
-                        logger.info(f"  {key}: {len(value) if hasattr(value, '__len__') else 'N/A'} items")
+                        length = len(value) if hasattr(value, '__len__') else 'N/A'
+                        logger.info(f"  {key}: {length} items")
+                        # Log specific contents for key data structures
+                        if key == 'eigenvalues' and isinstance(value, dict):
+                            for param_name, param_data in value.items():
+                                logger.info(f"    {param_name}: {len(param_data) if hasattr(param_data, '__len__') else 'N/A'} eigenvalue snapshots")
+                        elif key == 'grad_memory' and isinstance(value, dict):
+                            for param_name, param_data in value.items():
+                                logger.info(f"    {param_name}: {len(param_data) if hasattr(param_data, '__len__') else 'N/A'} gradient history entries")
                     
                 # Log specific TALTVisualizer format data
                 if 'eigenvalues' in talt_data:
