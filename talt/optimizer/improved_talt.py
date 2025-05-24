@@ -91,7 +91,6 @@ class ImprovedTALTOptimizer:
             raise TypeError("base_optimizer must be a callable that returns an optimizer")
         
         # Test base_optimizer call to ensure it works and store the optimizer
-        # FIXED: Store as self.optimizer instead of self._base_optimizer
         try:
             self.optimizer = base_optimizer(model.parameters(), lr=lr)
             if not hasattr(self.optimizer, 'step') or not hasattr(self.optimizer, 'zero_grad'):
@@ -145,6 +144,7 @@ class ImprovedTALTOptimizer:
 
         # Parameter-specific structures
         self.param_data = {}
+        self.grad_buffer = {}  # Temporary buffer for gradients
 
         # Register hooks for parameters of sufficient size
         registered_params = 0
@@ -174,10 +174,15 @@ class ImprovedTALTOptimizer:
                     'valley_dirs': None,
                     'transformation': None,
                     'gradient_norm_history': deque(maxlen=50),
-                    'consistency_history': deque(maxlen=50)
+                    'consistency_history': deque(maxlen=50),
+                    'grad_count': 0,
+                    'last_grad': None,
+                    'param_dim': dim,  # Store original dimension
+                    'proj_dim': target_dim  # Store projected dimension
                 }
 
                 self._visualization_data['gradient_stats'][name] = deque(maxlen=max_visualization_points)
+                self.grad_buffer[name] = deque(maxlen=memory_size)
 
                 logger.debug(f"Registered TALT hook for {name} (size: {p.numel()}, proj_dim: {target_dim})")
                 
@@ -202,75 +207,89 @@ class ImprovedTALTOptimizer:
         if name not in self.param_data:
             return grad
 
-        # Log gradient transform calls periodically
-        if self.steps % 50 == 0:
-            logger.debug(f"TALT gradient transform called for {name} at step {self.steps}")
-
         # Make a copy of original gradient
         orig_grad = grad.clone()
 
-        # Check if update is in progress for this parameter
-        with self._state_lock:
-            if name in self._pending_updates:
-                # Skip transformation during update
-                logger.debug(f"Skipping transform for {name} (update in progress)")
-                return grad
-
-            # Get parameter data safely
-            param_info = self.param_data[name]
-            transformation = param_info.get('transformation')
-
-        # If no transformation available, return original
-        if transformation is None:
-            return grad
+        # Get parameter data
+        param_info = self.param_data[name]
 
         try:
-            # Apply transformation outside of lock to avoid blocking
+            # Always store gradient information for covariance updates
             flat_grad = grad.view(-1)
-
+            
+            # Store gradient norm
+            grad_norm = torch.norm(flat_grad).item()
+            param_info['gradient_norm_history'].append(grad_norm)
+            param_info['grad_count'] += 1
+            
+            # Store gradient for later covariance update
+            self.grad_buffer[name].append(flat_grad.detach().cpu())
+            
+            # Update valley detector
+            param_info['valley_detector'].update(flat_grad.detach().cpu())
+            
+            # Log periodically
+            if self.steps % 100 == 0:
+                logger.debug(f"Gradient hook for {name}: norm={grad_norm:.4f}, count={param_info['grad_count']}")
+            
+            # Check if transformation is available
+            transformation = param_info.get('transformation')
+            if transformation is None:
+                return grad
+            
+            # PROJECT -> TRANSFORM -> UNPROJECT workflow
+            # 1. Project gradient to low-dimensional space
+            projected_grad = param_info['projector'].project(flat_grad)
+            
             # Ensure transformation is on correct device
-            if transformation is not None and transformation.device != flat_grad.device:
-                transformation = transformation.to(flat_grad.device)
+            if transformation.device != projected_grad.device:
+                transformation = transformation.to(projected_grad.device)
 
-            # Update valley detector (thread-safe)
-            with self._state_lock:
-                param_info['valley_detector'].update(flat_grad.detach().cpu())
-
-                # Store gradient norm
-                grad_norm = torch.norm(flat_grad).item()
-                param_info['gradient_norm_history'].append(grad_norm)
-
-            # Check for valleys with proper null handling
+            # 2. Check for valleys in the projected space
             is_valley, valley_dir = param_info['valley_detector'].detect_valley()
 
             if is_valley:
-                logger.debug(f"Valley detected for {name} at step {self.steps}")
+                logger.info(f"Valley detected for {name} at step {self.steps}")
                 
-                # Thread-safe bifurcation recording
+                # Record bifurcation
                 with self._state_lock:
-                    if len(self.bifurcations) < self.max_stored_steps:
-                        self.bifurcations.append(self.steps)
-
+                    self.bifurcations.append(self.steps)
                     self._visualization_data['valley_detections'].append(
                         (self.steps, name, 'valley')
                     )
 
-                # Apply valley transformation with clipping if valley_dir exists
+                # Apply valley transformation in projected space if valley_dir exists
                 if valley_dir is not None:
-                    valley_dir = valley_dir.to(flat_grad.device)
-                    valley_component = torch.dot(flat_grad, valley_dir) * valley_dir
+                    # Valley direction is already in projected space from valley detector
+                    valley_dir = valley_dir.to(projected_grad.device)
+                    valley_component = torch.dot(projected_grad, valley_dir) * valley_dir
                     
                     # Clip valley component to prevent gradient explosion
                     valley_component = torch.clamp(valley_component, -10.0, 10.0)
                     
-                    flat_grad = flat_grad + self.valley_strength * valley_component
+                    projected_grad = projected_grad + self.valley_strength * valley_component
 
-            # Apply curvature-based transformation
-            transformed_grad = torch.matmul(transformation, flat_grad.unsqueeze(1)).squeeze(1)
+            # 3. Apply curvature-based transformation in projected space
+            transformed_projected = torch.matmul(transformation, projected_grad.unsqueeze(1)).squeeze(1)
+
+            # 4. Unproject back to original space
+            # Since we used random projection, we need to approximate the inverse
+            # Using the transpose of the projection matrix scaled appropriately
+            projection_matrix = param_info['projector'].projection
+            if projection_matrix.is_sparse:
+                projection_matrix = projection_matrix.to_dense()
+            
+            # Move to correct device
+            projection_matrix = projection_matrix.to(transformed_projected.device)
+            
+            # Approximate inverse projection (transpose scaled by dimension ratio)
+            scale_factor = param_info['param_dim'] / param_info['proj_dim']
+            transformed_grad = scale_factor * torch.matmul(projection_matrix.t(), transformed_projected.unsqueeze(1)).squeeze(1)
 
             # Safety checks
+            transformed_grad_flat = transformed_grad.view(-1)
             cos_sim = nn.functional.cosine_similarity(
-                transformed_grad.view(-1), orig_grad.view(-1), dim=0
+                transformed_grad_flat, orig_grad.view(-1), dim=0
             )
 
             if cos_sim < 0.6:
@@ -286,17 +305,8 @@ class ImprovedTALTOptimizer:
 
             return transformed_grad
 
-        except RuntimeError as e:
-            if "out of memory" in str(e):
-                logger.error(f"GPU OOM in gradient transformation for {name}: {e}")
-            else:
-                logger.warning(f"Runtime error in gradient transformation for {name}: {e}")
-            return orig_grad
-        except ValueError as e:
-            logger.warning(f"Value error in gradient transformation for {name}: {e}")
-            return orig_grad
         except Exception as e:
-            logger.warning(f"Unexpected error transforming gradient for {name}: {e}")
+            logger.warning(f"Error transforming gradient for {name}: {e}")
             return orig_grad
 
     def _update_topology(self) -> None:
@@ -305,12 +315,21 @@ class ImprovedTALTOptimizer:
         
         updated_params = 0
         for name, param_info in self.param_data.items():
-            grad_history_size = len(param_info['gradient_norm_history'])
-            logger.debug(f"  {name}: {grad_history_size} gradients in history")
+            # Update covariance with buffered gradients
+            if name in self.grad_buffer and len(self.grad_buffer[name]) >= 2:
+                # Process all buffered gradients
+                for grad in self.grad_buffer[name]:
+                    # Project gradient
+                    projected_grad = param_info['projector'].project(grad)
+                    # Update covariance
+                    param_info['covariance'].update(projected_grad)
+                
+                # Clear buffer after processing
+                self.grad_buffer[name].clear()
             
-            # Skip if not enough data
-            if grad_history_size < 3:
-                logger.debug(f"  {name}: Insufficient gradient history ({grad_history_size} < 3)")
+            # Check if we have enough covariance updates
+            if param_info['covariance'].count < 3:
+                logger.debug(f"  {name}: Insufficient covariance updates ({param_info['covariance'].count} < 3)")
                 continue
 
             try:
@@ -336,8 +355,7 @@ class ImprovedTALTOptimizer:
 
                 logger.debug(f"  {name}: Computed {len(eigenvalues)} eigenvalues: {eigenvalues[:3].tolist()}")
 
-                # Create transformation matrix for gradient adjustment
-                # This is like a preconditioner based on the eigenstructure
+                # Create transformation matrix for gradient adjustment IN PROJECTED SPACE
                 transform = torch.eye(cov.shape[0], device=cov.device)
 
                 for i, val in enumerate(eigenvalues):
@@ -355,32 +373,25 @@ class ImprovedTALTOptimizer:
 
                     transform += (scale - 1.0) * torch.matmul(vec, vec.t())
 
-                # Store transformation matrix
+                # Store transformation matrix (for projected space)
                 param_info['transformation'] = transform.to(self.device)
 
-                # Store top eigenvalues for visualization
-                top_vals = eigenvalues[:min(3, len(eigenvalues))].detach().cpu().numpy()
+                # Store visualization data
+                grad_norm_avg = np.mean(list(param_info['gradient_norm_history'])) if param_info['gradient_norm_history'] else 0.0
                 self._visualization_data['gradient_stats'][name].append({
                     'step': self.steps,
-                    'eigenvalues': top_vals,
-                    'grad_norm': np.mean([n for n in param_info['gradient_norm_history']])
+                    'eigenvalues': eigenvalues[:min(3, len(eigenvalues))].detach().cpu().numpy(),
+                    'grad_norm': grad_norm_avg
                 })
 
                 updated_params += 1
-                logger.debug(f"  {name}: Successfully updated transformation matrix")
+                logger.info(f"  {name}: Successfully updated transformation matrix")
 
                 # Clean up to avoid memory leaks
                 del cov, eigenvalues, eigenvectors, transform
 
-            except RuntimeError as e:
-                if "out of memory" in str(e):
-                    logger.error(f"GPU OOM in topology update for {name}: {e}")
-                else:
-                    logger.warning(f"Runtime error updating topology for {name}: {e}")
-            except ValueError as e:
-                logger.warning(f"Value error updating topology for {name}: {e}")
             except Exception as e:
-                logger.warning(f"Unexpected error updating topology for {name}: {e}")
+                logger.warning(f"Error updating topology for {name}: {e}")
         
         logger.info(f"TALT topology update completed: {updated_params}/{len(self.param_data)} parameters updated")
 
@@ -441,7 +452,7 @@ class ImprovedTALTOptimizer:
                 else:
                     logits = out
                 
-                # Fix: Use consistent argument order - check if loss_fn expects (output, target)
+                # Use consistent argument order
                 try:
                     loss = loss_fn(logits, y)
                 except TypeError:
@@ -464,7 +475,7 @@ class ImprovedTALTOptimizer:
             forward_start = time.time()
             with autocast('cuda'):
                 out = self.model(x)
-                # Fix: Use consistent argument order
+                # Use consistent argument order
                 try:
                     loss = loss_fn(out, y)
                 except TypeError:
@@ -521,22 +532,6 @@ class ImprovedTALTOptimizer:
         
         backward_time = time.time() - backward_start
         timings['backward_pass'] = backward_time
-        
-        # Store and analyze gradients periodically
-        grad_start = time.time()
-        if self.steps % self.store_interval == 0:
-            # Clean up removed parameters
-            self._cleanup_removed_parameters()
-            
-            for name, p in self.model.named_parameters():
-                if p.grad is not None and name in self.param_data:
-                    flat_grad = p.grad.detach().view(-1)
-                    
-                    # Update covariance with projected gradient
-                    projected_grad = self.param_data[name]['projector'].project(flat_grad)
-                    self.param_data[name]['covariance'].update(projected_grad)
-        grad_time = time.time() - grad_start
-        timings['gradient_processing'] = grad_time
         
         # Update parameters
         optim_start = time.time()
@@ -623,6 +618,9 @@ class ImprovedTALTOptimizer:
             print(f"  Gradient norms collected: {len(info['gradient_norm_history'])}")
             print(f"  Covariance updates: {info['covariance'].count}")
             print(f"  Has transformation: {info.get('transformation') is not None}")
+            print(f"  Grad count: {info['grad_count']}")
+            print(f"  Buffered gradients: {len(self.grad_buffer.get(name, []))}")
+            print(f"  Original dim: {info['param_dim']}, Projected dim: {info['proj_dim']}")
             valley_detections = [d for d in self._visualization_data['valley_detections'] if d[1] == name]
             print(f"  Valley detections: {len(valley_detections)}")
         
