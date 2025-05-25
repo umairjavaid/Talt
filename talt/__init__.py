@@ -8,7 +8,11 @@ valley detection to improve optimization performance while reducing memory usage
 
 from talt.utils import Timer, print_memory_usage, PerformanceTracker
 from talt.components import RandomProjection, IncrementalCovariance, PowerIteration, ValleyDetector
-from talt.optimizer import ImprovedTALTOptimizer, TALTOptimizer
+from .optimizer import ImprovedTALTOptimizer
+try:
+    from .optimizer import TALTOptimizer
+except ImportError:
+    TALTOptimizer = None
 from talt.visualization import TALTVisualizer, OriginalTALTVisualizer
 
 # Export diagnostic utilities for TALT optimizers
@@ -36,9 +40,11 @@ __all__ = [
     'PowerIteration',
     'ValleyDetector',
     'ImprovedTALTOptimizer',
-    'TALTOptimizer',
     'TALTVisualizer',
     'OriginalTALTVisualizer',
     'diagnose_talt_optimizer',
     'force_talt_update'
 ]
+
+if TALTOptimizer is not None:
+    __all__.append('TALTOptimizer')

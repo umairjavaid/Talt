@@ -140,17 +140,17 @@ class Experiment:
                     'weight_decay': self.optimizer_config.get('weight_decay', 5e-4)
                 }
                 
-                # Extract TALT-specific parameters
+                # Extract TALT-specific parameters - updated for ImprovedTALTOptimizer
                 talt_params = {
                     'lr': self.optimizer_config.get('lr', 0.01),
-                    'projection_dim': self.optimizer_config.get('projection_dim', 32),
                     'memory_size': self.optimizer_config.get('memory_size', 10),
                     'update_interval': self.optimizer_config.get('update_interval', 20),
-                    'valley_strength': self.optimizer_config.get('valley_strength', 0.2),
+                    'valley_strength': self.optimizer_config.get('valley_strength', 0.1),
                     'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.3),
                     'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
-                    'cov_decay': self.optimizer_config.get('cov_decay', 0.95),
-                    'adaptive_reg': self.optimizer_config.get('adaptive_reg', True),
+                    'min_param_size': self.optimizer_config.get('min_param_size', 100),
+                    'max_param_size': self.optimizer_config.get('max_param_size', 1000000),
+                    'sparsity_threshold': self.optimizer_config.get('sparsity_threshold', 0.01),
                     'device': self.device
                 }
                 
@@ -190,7 +190,7 @@ class Experiment:
                     'weight_decay': self.optimizer_config.get('weight_decay', 5e-4)
                 }
                 
-                # Extract TALT-specific parameters
+                # Extract TALT-specific parameters for original TALT
                 talt_params = {
                     'lr': self.optimizer_config.get('lr', 0.01),
                     'eigenspace_memory_size': self.optimizer_config.get('memory_size', 10),
@@ -199,6 +199,7 @@ class Experiment:
                     'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.3),
                     'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
                     'min_param_size': self.optimizer_config.get('min_param_size', 10),
+                    'projection_dim': self.optimizer_config.get('projection_dim', 64),  # Only for original TALT
                     'device': self.device
                 }
                 

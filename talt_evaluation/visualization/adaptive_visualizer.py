@@ -485,68 +485,67 @@ class AdaptiveVisualizer:
                     optimizer.force_topology_update()
             
             # If we have an ImprovedTALTOptimizer instance, extract its data
-            if optimizer and hasattr(optimizer, '_visualization_data'):
+            if optimizer and hasattr(optimizer, 'get_visualization_data'):
                 logger.info("Extracting data from TALT optimizer instance")
                 
                 # Use the optimizer's get_visualization_data method if available
-                if hasattr(optimizer, 'get_visualization_data'):
-                    try:
-                        opt_viz_data = optimizer.get_visualization_data()
-                        # Start with the complete data from get_visualization_data
-                        talt_data.update(opt_viz_data)
-                        logger.info(f"Successfully extracted data using get_visualization_data: {list(opt_viz_data.keys())}")
+                try:
+                    opt_viz_data = optimizer.get_visualization_data()
+                    # Start with the complete data from get_visualization_data
+                    talt_data.update(opt_viz_data)
+                    logger.info(f"Successfully extracted data using get_visualization_data: {list(opt_viz_data.keys())}")
+                    
+                    # Convert eigenvalues_history to TALTVisualizer format
+                    if 'eigenvalues_history' in opt_viz_data and opt_viz_data['eigenvalues_history']:
+                        eigenvalues_formatted = {}
+                        for param_name, data in opt_viz_data['eigenvalues_history'].items():
+                            if 'eigenvalues' in data and 'steps' in data:
+                                eigenvals_list = data['eigenvalues']
+                                steps_list = data['steps']
+                                # Convert to [(step, eigenvalues), ...] format
+                                eigenvalues_formatted[param_name] = [
+                                    (step, eigenvals) for step, eigenvals in zip(steps_list, eigenvals_list)
+                                ]
                         
-                        # Convert eigenvalues_history to TALTVisualizer format
-                        if 'eigenvalues_history' in opt_viz_data and opt_viz_data['eigenvalues_history']:
-                            eigenvalues_formatted = {}
-                            for param_name, data in opt_viz_data['eigenvalues_history'].items():
-                                if 'eigenvalues' in data and 'steps' in data:
-                                    eigenvals_list = data['eigenvalues']
-                                    steps_list = data['steps']
-                                    # Convert to [(step, eigenvalues), ...] format
-                                    eigenvalues_formatted[param_name] = [
-                                        (step, eigenvals) for step, eigenvals in zip(steps_list, eigenvals_list)
-                                    ]
-                            
-                            if eigenvalues_formatted:
-                                talt_data['eigenvalues'] = eigenvalues_formatted
-                                logger.info(f"Formatted eigenvalues data for {len(eigenvalues_formatted)} parameters")
+                        if eigenvalues_formatted:
+                            talt_data['eigenvalues'] = eigenvalues_formatted
+                            logger.info(f"Formatted eigenvalues data for {len(eigenvalues_formatted)} parameters")
+                    
+                    # Convert gradient_stats to grad_memory format for TALTVisualizer
+                    if 'gradient_stats' in opt_viz_data and opt_viz_data['gradient_stats']:
+                        grad_memory_formatted = {}
+                        for param_name, stats_list in opt_viz_data['gradient_stats'].items():
+                            if isinstance(stats_list, list) and len(stats_list) > 0:
+                                # Convert to [(step, grad_norm, 0), ...] format
+                                grad_memory_formatted[param_name] = []
+                                for stat_entry in stats_list:
+                                    if isinstance(stat_entry, dict):
+                                        step = stat_entry.get('step', 0)
+                                        grad_norm = stat_entry.get('grad_norm', 0.0)
+                                        grad_memory_formatted[param_name].append((step, grad_norm, 0))
                         
-                        # Convert gradient_stats to grad_memory format for TALTVisualizer
-                        if 'gradient_stats' in opt_viz_data and opt_viz_data['gradient_stats']:
-                            grad_memory_formatted = {}
-                            for param_name, stats_list in opt_viz_data['gradient_stats'].items():
-                                if isinstance(stats_list, list) and len(stats_list) > 0:
-                                    # Convert to [(step, grad_norm, 0), ...] format
-                                    grad_memory_formatted[param_name] = []
-                                    for stat_entry in stats_list:
-                                        if isinstance(stat_entry, dict):
-                                            step = stat_entry.get('step', 0)
-                                            grad_norm = stat_entry.get('grad_norm', 0.0)
-                                            grad_memory_formatted[param_name].append((step, grad_norm, 0))
-                            
-                            if grad_memory_formatted:
-                                talt_data['grad_memory'] = grad_memory_formatted
-                                logger.info(f"Formatted grad_memory data for {len(grad_memory_formatted)} parameters")
+                        if grad_memory_formatted:
+                            talt_data['grad_memory'] = grad_memory_formatted
+                            logger.info(f"Formatted grad_memory data for {len(grad_memory_formatted)} parameters")
+                    
+                    # Alternative: Convert gradient_norms_history to grad_memory format
+                    elif 'gradient_norms_history' in opt_viz_data and opt_viz_data['gradient_norms_history']:
+                        grad_memory_formatted = {}
+                        for param_name, data in opt_viz_data['gradient_norms_history'].items():
+                            if 'grad_norms' in data:
+                                grad_norms = data['grad_norms']
+                                steps = data.get('steps', list(range(len(grad_norms))))
+                                # Convert to [(step, grad_norm, 0), ...] format
+                                grad_memory_formatted[param_name] = [
+                                    (step, grad_norm, 0) for step, grad_norm in zip(steps, grad_norms)
+                                ]
                         
-                        # Alternative: Convert gradient_norms_history to grad_memory format
-                        elif 'gradient_norms_history' in opt_viz_data and opt_viz_data['gradient_norms_history']:
-                            grad_memory_formatted = {}
-                            for param_name, data in opt_viz_data['gradient_norms_history'].items():
-                                if 'grad_norms' in data:
-                                    grad_norms = data['grad_norms']
-                                    steps = data.get('steps', list(range(len(grad_norms))))
-                                    # Convert to [(step, grad_norm, 0), ...] format
-                                    grad_memory_formatted[param_name] = [
-                                        (step, grad_norm, 0) for step, grad_norm in zip(steps, grad_norms)
-                                    ]
-                            
-                            if grad_memory_formatted:
-                                talt_data['grad_memory'] = grad_memory_formatted
-                                logger.info(f"Formatted grad_memory from gradient_norms_history for {len(grad_memory_formatted)} parameters")
-                        
-                    except Exception as e:
-                        logger.warning(f"Failed to get visualization data from optimizer method: {e}")
+                        if grad_memory_formatted:
+                            talt_data['grad_memory'] = grad_memory_formatted
+                            logger.info(f"Formatted grad_memory from gradient_norms_history for {len(grad_memory_formatted)} parameters")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to get visualization data from optimizer method: {e}")
                 
                 # Extract loss values if not already present
                 if 'loss_values' not in talt_data or not talt_data['loss_values']:

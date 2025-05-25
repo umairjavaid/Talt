@@ -187,14 +187,14 @@ You can define batch experiments in JSON files. For example:
 The framework includes an Optuna-based hyperparameter tuning module for TALT. Tunable parameters include:
 
 - `learning_rate`
-- `projection_dim`
 - `memory_size`
 - `update_interval`
 - `valley_strength`
 - `smoothing_factor`
 - `grad_store_interval`
-- `cov_decay`
-- `adaptive_reg`
+- `min_param_size`
+- `max_param_size`
+- `sparsity_threshold`
 
 ## Results and Visualizations
 

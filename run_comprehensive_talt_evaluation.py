@@ -238,23 +238,23 @@ class ComprehensiveTALTEvaluator:
         no_smoothing["smoothing_factor"] = 0.0
         ablation_config["experiments"].append(no_smoothing)
         
-        # 3. Small projection dimension
-        small_proj = base_talt_exp.copy()
-        small_proj["name"] = f"{base_talt_exp['name']}_small_proj"
-        small_proj["projection_dim"] = 8
-        ablation_config["experiments"].append(small_proj)
+        # 3. Small memory size
+        small_memory = base_talt_exp.copy()
+        small_memory["name"] = f"{base_talt_exp['name']}_small_memory"
+        small_memory["memory_size"] = 5
+        ablation_config["experiments"].append(small_memory)
         
-        # 4. Large projection dimension
-        large_proj = base_talt_exp.copy()
-        large_proj["name"] = f"{base_talt_exp['name']}_large_proj"
-        large_proj["projection_dim"] = 128
-        ablation_config["experiments"].append(large_proj)
+        # 4. Large memory size
+        large_memory = base_talt_exp.copy()
+        large_memory["name"] = f"{base_talt_exp['name']}_large_memory"
+        large_memory["memory_size"] = 20
+        ablation_config["experiments"].append(large_memory)
         
-        # 5. No adaptive regularization
-        no_adaptive_reg = base_talt_exp.copy()
-        no_adaptive_reg["name"] = f"{base_talt_exp['name']}_no_adaptive_reg"
-        no_adaptive_reg["adaptive_reg"] = False
-        ablation_config["experiments"].append(no_adaptive_reg)
+        # 5. Frequent updates
+        frequent_updates = base_talt_exp.copy()
+        frequent_updates["name"] = f"{base_talt_exp['name']}_frequent_updates"
+        frequent_updates["update_interval"] = 5
+        ablation_config["experiments"].append(frequent_updates)
         
         return ablation_config
     
@@ -297,7 +297,7 @@ class ComprehensiveTALTEvaluator:
                     }
                     
                     # Add optimizer-specific settings
-                    if opt == "talt":
+                    if opt == "improved-talt":
                         new_exp["lr"] = 0.01
                         new_exp["valley_strength"] = 0.2
                         new_exp["smoothing_factor"] = 0.3

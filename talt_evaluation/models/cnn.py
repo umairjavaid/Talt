@@ -57,14 +57,14 @@ class SimpleCNN(nn.Module):
             },
             'improved-talt': {
                 'lr': 0.01,
-                'projection_dim': 16,
                 'memory_size': 8,
                 'update_interval': 25,
                 'valley_strength': 0.15,
                 'smoothing_factor': 0.3,
                 'grad_store_interval': 5,
-                'cov_decay': 0.95,
-                'adaptive_reg': True
+                'min_param_size': 100,
+                'max_param_size': 1000000,
+                'sparsity_threshold': 0.01
             },
             'original-talt': {
                 'lr': 0.01,
@@ -81,13 +81,14 @@ class SimpleCNN(nn.Module):
         """Get hyperparameter search space for this architecture."""
         return {
             'lr': {'type': 'float', 'low': 1e-4, 'high': 1e-1, 'log': True},
-            'projection_dim': {'type': 'int', 'low': 8, 'high': 32},
             'memory_size': {'type': 'int', 'low': 5, 'high': 15},
             'update_interval': {'type': 'int', 'low': 10, 'high': 50},
             'valley_strength': {'type': 'float', 'low': 0.05, 'high': 0.5},
             'smoothing_factor': {'type': 'float', 'low': 0.1, 'high': 0.7},
             'grad_store_interval': {'type': 'int', 'low': 3, 'high': 10},
-            'cov_decay': {'type': 'float', 'low': 0.9, 'high': 0.99}
+            'min_param_size': {'type': 'int', 'low': 50, 'high': 500},
+            'max_param_size': {'type': 'int', 'low': 100000, 'high': 5000000},
+            'sparsity_threshold': {'type': 'float', 'low': 0.001, 'high': 0.1}
         }
     
     def architecture_specific_visualization(self, inputs):

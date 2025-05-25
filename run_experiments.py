@@ -157,6 +157,14 @@ def main():
     # Experiment output
     single_parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
     single_parser.add_argument('--save-checkpoints', action='store_true', help='Save model checkpoints')
+    single_parser.add_argument('--checkpoint-interval', type=int, default=10, help='Epochs between checkpoints')
+    single_parser.add_argument('--resume-from', type=str, default=None, help='Resume from checkpoint path')
+    single_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    
+    # Hyperparameter tuning options
+    single_parser.add_argument('--tune-hyperparams', action='store_true', help='Enable hyperparameter tuning')
+    single_parser.add_argument('--study-name', type=str, default=None, help='Optuna study name')
+    single_parser.add_argument('--n-trials', type=int, default=30, help='Number of trials for tuning')
     
     # Hardware configuration
     single_parser.add_argument('--gpu-index', type=int, default=0, help='GPU index')

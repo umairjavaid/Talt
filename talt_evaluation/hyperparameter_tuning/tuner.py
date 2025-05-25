@@ -69,10 +69,14 @@ class TaltTuner:
         else:
             # Check if we're using study_name to determine TALT version
             if 'original' in self.study_name.lower():
-                from talt.optimizer.original_talt import TALTOptimizer as TALT
-                is_improved = False
+                try:
+                    from talt.optimizer.original_talt import TALTOptimizer as TALT
+                    is_improved = False
+                except ImportError:
+                    from talt.optimizer import ImprovedTALTOptimizer as TALT
+                    is_improved = True
             else:
-                from talt.optimizer.improved_talt import ImprovedTALTOptimizer as TALT
+                from talt.optimizer import ImprovedTALTOptimizer as TALT
                 is_improved = True
         
         # Fixed parameters for base optimizer
@@ -124,12 +128,9 @@ class TaltTuner:
                 talt_params['eigenspace_memory_size'] = talt_params.pop('memory_size')
             if 'update_interval' in talt_params:
                 talt_params['topology_update_interval'] = talt_params.pop('update_interval')
-            if 'adaptive_reg' in talt_params:
-                # Original TALT doesn't use adaptive_reg, so remove it
-                talt_params.pop('adaptive_reg', None)
-            if 'cov_decay' in talt_params:
-                # Original TALT doesn't use cov_decay, so remove it
-                talt_params.pop('cov_decay', None)
+            # Remove parameters that don't exist in original TALT
+            for param in ['min_param_size', 'max_param_size', 'sparsity_threshold']:
+                talt_params.pop(param, None)
         
         # Create optimizer with properly separated parameters
         optimizer = TALT(

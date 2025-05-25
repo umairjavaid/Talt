@@ -57,14 +57,14 @@ class BERTModel(nn.Module):
             },
             'improved-talt': {
                 'lr': 2e-5,
-                'projection_dim': 64,
                 'memory_size': 10,
                 'update_interval': 50,
                 'valley_strength': 0.1,
                 'smoothing_factor': 0.5,
                 'grad_store_interval': 10,
-                'cov_decay': 0.99,
-                'adaptive_reg': True
+                'min_param_size': 100,
+                'max_param_size': 10000000,
+                'sparsity_threshold': 0.01
             },
             'original-talt': {
                 'lr': 2e-5,
@@ -81,13 +81,14 @@ class BERTModel(nn.Module):
         """Get hyperparameter search space for this architecture."""
         return {
             'lr': {'type': 'float', 'low': 1e-6, 'high': 1e-4, 'log': True},
-            'projection_dim': {'type': 'int', 'low': 32, 'high': 128},
             'memory_size': {'type': 'int', 'low': 5, 'high': 20},
             'update_interval': {'type': 'int', 'low': 20, 'high': 100},
             'valley_strength': {'type': 'float', 'low': 0.05, 'high': 0.3},
             'smoothing_factor': {'type': 'float', 'low': 0.3, 'high': 0.8},
             'grad_store_interval': {'type': 'int', 'low': 5, 'high': 20},
-            'cov_decay': {'type': 'float', 'low': 0.95, 'high': 0.999}
+            'min_param_size': {'type': 'int', 'low': 50, 'high': 1000},
+            'max_param_size': {'type': 'int', 'low': 1000000, 'high': 50000000},
+            'sparsity_threshold': {'type': 'float', 'low': 0.001, 'high': 0.1}
         }
 
 def get_bert(model_variant='base', dataset='glue-sst2', pretrained=True):

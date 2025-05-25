@@ -96,7 +96,7 @@ class TALTVisualizer:
         """
         if 'loss_values' in optimizer_data:
             if isinstance(optimizer_data['loss_values'], deque):
-                self.data['loss_values'] = optimizer_data['loss_values']
+                self.data['loss_values'].extend(optimizer_data['loss_values'])
             else: # Assuming it's a list, append to deque
                 for loss_val in optimizer_data['loss_values']:
                     self.data['loss_values'].append(loss_val)

@@ -118,24 +118,35 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.1, help='Base learning rate')
     parser.add_argument('--weight-decay', type=float, default=5e-4, help='Weight decay')
     parser.add_argument('--mixed-precision', action='store_true', help='Use mixed precision training')
-    parser.add_argument('--projection-dim', type=int, default=64, help='TALT projection dimension')
+    
+    # Output and hardware configuration
+    parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
+    parser.add_argument('--gpu-index', type=int, default=0, help='GPU index to use')
+    parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
+    parser.add_argument('--save-checkpoints', action='store_true', help='Save model checkpoints')
+    parser.add_argument('--checkpoint-interval', type=int, default=10, help='Epochs between checkpoints')
+    parser.add_argument('--resume-from', type=str, default=None, help='Resume from checkpoint path')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    
+    # Hyperparameter tuning options
+    parser.add_argument('--tune-hyperparams', action='store_true', help='Enable hyperparameter tuning')
+    parser.add_argument('--study-name', type=str, default=None, help='Optuna study name for hyperparameter tuning')
+    parser.add_argument('--n-trials', type=int, default=30, help='Number of trials for hyperparameter tuning')
+    
+    # TALT parameters
+    parser.add_argument('--projection-dim', type=int, default=64, help='Original TALT projection dimension (ignored for improved-talt)')
     parser.add_argument('--memory-size', type=int, default=10, help='TALT memory size')
     parser.add_argument('--update-interval', type=int, default=100, help='TALT update interval')
     parser.add_argument('--valley-strength', type=float, default=0.1, help='TALT valley strength')
     parser.add_argument('--smoothing-factor', type=float, default=0.9, help='TALT smoothing factor')
     parser.add_argument('--grad-store-interval', type=int, default=10, help='TALT gradient store interval')
-    parser.add_argument('--cov-decay', type=float, default=0.99, help='TALT covariance decay')
-    parser.add_argument('--adaptive-reg', type=float, default=1e-5, help='TALT adaptive regularization')
-    parser.add_argument('--tune-hyperparams', action='store_true', help='Tune TALT hyperparameters')
-    parser.add_argument('--n-trials', type=int, default=30, help='Number of hyperparameter tuning trials')
-    parser.add_argument('--study-name', type=str, default=None, help='Optuna study name')
-    parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
-    parser.add_argument('--save-checkpoints', action='store_true', help='Save model checkpoints')
-    parser.add_argument('--checkpoint-interval', type=int, default=5, help='Interval for saving checkpoints')
-    parser.add_argument('--resume-from', type=str, default=None, help='Resume from checkpoint')
-    parser.add_argument('--gpu-index', type=int, default=0, help='GPU index')
-    parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    # Improved TALT specific parameters
+    parser.add_argument('--min-param-size', type=int, default=100, help='Improved TALT minimum parameter size to track')
+    parser.add_argument('--max-param-size', type=int, default=1000000, help='Improved TALT maximum parameter size to track')
+    parser.add_argument('--sparsity-threshold', type=float, default=0.01, help='Improved TALT sparsity threshold')
+    # Original TALT specific parameters
+    parser.add_argument('--cov-decay', type=float, default=0.99, help='Original TALT covariance decay')
+    parser.add_argument('--adaptive-reg', type=float, default=1e-5, help='Original TALT adaptive regularization')
     
     return parser.parse_args()
 
@@ -206,17 +217,30 @@ def main():
     
     # Add TALT specific parameters if applicable
     if args.optimizer in ['improved-talt', 'original-talt']:
+        # Common TALT parameters
         talt_params = {
-            'projection_dim': args.projection_dim,
             'memory_size': args.memory_size,
             'update_interval': args.update_interval,
             'valley_strength': args.valley_strength,
             'smoothing_factor': args.smoothing_factor,
             'grad_store_interval': args.grad_store_interval,
-            'cov_decay': args.cov_decay,
-            'adaptive_reg': args.adaptive_reg,
             'device': device  # Keep device for TALT creation, will be filtered out during JSON serialization
         }
+        
+        # Add optimizer-specific parameters
+        if args.optimizer == 'improved-talt':
+            talt_params.update({
+                'min_param_size': args.min_param_size,
+                'max_param_size': args.max_param_size,
+                'sparsity_threshold': args.sparsity_threshold,
+            })
+        elif args.optimizer == 'original-talt':
+            talt_params.update({
+                'projection_dim': args.projection_dim,
+                'cov_decay': args.cov_decay,
+                'adaptive_reg': args.adaptive_reg,
+            })
+        
         optimizer_config.update(talt_params)
     
     if args.tune_hyperparams:
