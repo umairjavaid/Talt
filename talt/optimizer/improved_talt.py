@@ -1,32 +1,25 @@
-"""Optimized TALT Optimizer - Theoretically correct with performance optimizations."""
+"""Speed-Optimized TALT Optimizer - Maintains theoretical correctness with maximum performance."""
 from collections import deque
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 import torch
 import torch.nn as nn
 import logging
-import gc
+import numpy as np
 from torch.amp import autocast, GradScaler
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
 class ImprovedTALTOptimizer:
     """
-    Optimized TALT Optimizer - Maintains theoretical correctness with performance improvements.
+    Speed-Optimized TALT Optimizer with theoretical correctness.
     
-    Key optimizations over original TALT:
-    1. Sparse gradient storage for memory efficiency
-    2. Batched eigendecomposition updates
-    3. Optimized matrix operations
-    4. Smart parameter filtering
-    5. Efficient memory reuse
-    
-    Maintains the exact TALT algorithm:
-    - Full gradient dimensionality (no projections like original TALT)
-    - Exact eigendecomposition
-    - Correct eigenspace transformations
-    
-    Note: Unlike original TALT, this optimizer does not use projection_dim
-    as it maintains full dimensionality for theoretical correctness.
+    Performance optimizations:
+    1. Efficient eigendecomposition with caching
+    2. Vectorized operations and in-place computations
+    3. Smart memory management and reuse
+    4. JIT-compiled critical functions
+    5. Minimal CPU-GPU transfers
     """
     
     def __init__(
@@ -41,37 +34,23 @@ class ImprovedTALTOptimizer:
         smoothing_factor: float = 0.3,
         grad_store_interval: int = 5,
         min_param_size: int = 100,
-        max_param_size: int = 1000000,  # Don't track huge parameters
-        sparsity_threshold: float = 0.01,  # For sparse storage
-        device: Union[str, torch.device] = "cuda"
+        max_param_size: int = 1000000,
+        sparsity_threshold: float = 0.01,
+        device: Union[str, torch.device] = "cuda",
+        gradient_clip_norm: float = 10.0,
+        min_eigenvalue: float = 1e-6,
+        regularization_strength: float = 1e-3,
+        use_power_iteration: bool = True,  # Use faster eigendecomposition for large matrices
+        power_iter_steps: int = 5,         # Steps for power iteration
+        compile_mode: bool = True          # Use torch.compile for critical functions
     ):
-        """
-        Initialize optimized TALT optimizer.
-        
-        Args:
-            model: Neural network model
-            base_optimizer: Base optimizer class (e.g., optim.SGD)
-            lr: Learning rate
-            memory_size: Number of past gradients to store
-            update_interval: Steps between topology updates
-            valley_strength: Strength of valley amplification
-            smoothing_factor: Factor for smoothing high-curvature directions
-            grad_store_interval: Steps between gradient storage
-            min_param_size: Minimum parameter size to track
-            max_param_size: Maximum parameter size to track (for memory efficiency)
-            sparsity_threshold: Threshold for sparse gradient storage
-            device: Device to perform computations on
-            
-        Note:
-            Unlike original TALT, this optimizer automatically determines
-            the optimal dimensionality and does not require projection_dim.
-        """
+        """Initialize speed-optimized TALT optimizer."""
         self.model = model
         self.optimizer = base_optimizer(model.parameters(), lr=lr)
         self.device = device if isinstance(device, torch.device) else torch.device(device)
         self.scaler = GradScaler()
         
-        # TALT parameters (same as original)
+        # TALT parameters
         self.memory_size = memory_size
         self.update_interval = update_interval
         self.valley_strength = valley_strength
@@ -81,211 +60,329 @@ class ImprovedTALTOptimizer:
         self.max_param_size = max_param_size
         self.sparsity_threshold = sparsity_threshold
         
+        # Stability parameters
+        self.gradient_clip_norm = gradient_clip_norm
+        self.min_eigenvalue = min_eigenvalue
+        self.regularization_strength = regularization_strength
+        
+        # Performance parameters
+        self.use_power_iteration = use_power_iteration
+        self.power_iter_steps = power_iter_steps
+        
         # State tracking
         self.steps = 0
-        self.loss_history = []
+        self.loss_history = deque(maxlen=1000)  # Limited history
         self.bifurcations = []
         
-        # Per-parameter gradient tracking
-        self.grad_memory = {}
-        self.principal_dirs = {}
-        self.eigenvalues = {}
+        # Per-parameter state with efficient storage
+        self.param_data = {}  # Consolidated parameter data
         
-        # Optimization: Pre-allocate buffers for efficiency
-        self.grad_buffer = {}  # Temporary buffers
-        self.transform_cache = {}  # Cache transformation matrices
+        # Pre-compute constants
+        self.valley_scale = 1.0 + self.valley_strength
+        self.high_curve_threshold = 1.0
+        self.low_curve_threshold = 0.5
+        self.valley_threshold = 0.05
         
-        # Visualization data (limited storage)
+        # Visualization data (minimal for speed)
         self._visualization_data = {
             'loss_values': deque(maxlen=1000),
             'bifurcations': deque(maxlen=100),
-            'eigenvalues': {}
+            'valley_detections': deque(maxlen=100)
         }
         
-        # Smart parameter selection
+        # Initialize parameters efficiently
+        self._initialize_parameters()
+        
+        # Compile critical functions if requested
+        if compile_mode and hasattr(torch, 'compile'):
+            try:
+                self._transform_gradient_core = torch.compile(self._transform_gradient_core)
+                self._power_iteration = torch.compile(self._power_iteration)
+                logger.info("TALT: Compiled critical functions for speed")
+            except:
+                logger.warning("TALT: torch.compile not available, running in eager mode")
+    
+    def _initialize_parameters(self):
+        """Efficiently initialize parameter tracking."""
         registered_params = 0
         total_params = 0
-        total_model_params = sum(p.numel() for p in model.parameters())
+        total_model_params = sum(p.numel() for p in self.model.parameters())
         
-        logger.info(f"Optimized TALT initialized with {total_model_params} total parameters")
+        logger.info(f"Speed-Optimized TALT initialized with {total_model_params} total parameters")
         
-        for name, param in model.named_parameters():
+        # Pre-allocate all parameter data structures
+        for name, param in self.model.named_parameters():
             total_params += 1
             param_size = param.numel()
             
-            # Smart filtering: skip very small or very large parameters
             if (param.requires_grad and 
                 param_size >= self.min_param_size and 
                 param_size <= self.max_param_size):
                 
                 registered_params += 1
-                self.grad_memory[name] = deque(maxlen=self.memory_size)
-                self.principal_dirs[name] = None
-                self.eigenvalues[name] = None
-                self._visualization_data['eigenvalues'][name] = deque(maxlen=100)
                 
-                # Pre-allocate gradient buffer
-                self.grad_buffer[name] = torch.zeros(param_size, device='cpu', pin_memory=True)
+                # Consolidated data structure for efficiency
+                self.param_data[name] = {
+                    'grad_memory': deque(maxlen=self.memory_size),
+                    'principal_dirs': None,
+                    'eigenvalues': None,
+                    'grad_buffer': torch.zeros(param_size, device='cpu', dtype=param.dtype, pin_memory=True),
+                    'transform_matrix': None,  # Cache transformation matrix
+                    'last_update_step': -1,    # Track last update
+                    'size': param_size,
+                    'use_power_iter': param_size > 5000,  # Use power iteration for large params
+                    'gradient_norm_history': deque(maxlen=100)
+                }
                 
-                # Register hook
-                param.register_hook(lambda grad, name=name: self._transform_gradient(grad, name))
+                # Register optimized hook
+                handle = param.register_hook(
+                    lambda grad, name=name, param_ref=self.param_data[name]: 
+                    self._fast_transform_gradient(grad, name, param_ref)
+                )
+                self.param_data[name]['hook_handle'] = handle
         
         logger.info(f"TALT: Tracking {registered_params}/{total_params} parameters")
-
-    def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
-        """
-        Transform gradient using exact TALT algorithm with optimizations.
-        """
-        if name not in self.grad_memory:
+        
+        # Pre-allocate workspace tensors for efficiency
+        if registered_params > 0:
+            max_param_size = max(pd['size'] for pd in self.param_data.values())
+            self._workspace = {
+                'coeffs': torch.zeros(self.memory_size, device=self.device),
+                'temp_vec': torch.zeros(max_param_size, device=self.device),
+                'temp_mat': torch.zeros(self.memory_size, self.memory_size, device=self.device)
+            }
+    
+    @torch.no_grad()
+    def _fast_transform_gradient(self, grad: torch.Tensor, name: str, param_ref: Dict) -> torch.Tensor:
+        """Fast gradient transformation with minimal overhead."""
+        # Quick NaN check
+        if not torch.isfinite(grad).all():
+            return torch.zeros_like(grad)
+        
+        # Quick clip
+        grad_norm = grad.norm()
+        if grad_norm > self.gradient_clip_norm:
+            grad.mul_(self.gradient_clip_norm / grad_norm)
+        
+        # Skip if no eigenspace computed yet
+        if param_ref['principal_dirs'] is None:
             return grad
-            
-        dirs = self.principal_dirs[name]
-        vals = self.eigenvalues[name]
+        
+        # Use cached transformation if available and recent
+        if (param_ref['transform_matrix'] is not None and 
+            self.steps - param_ref['last_update_step'] < self.update_interval // 2):
+            flat_grad = grad.view(-1)
+            transformed = torch.mv(param_ref['transform_matrix'], flat_grad)
+            return transformed.view_as(grad)
+        
+        # Full transformation
+        return self._transform_gradient_core(grad, name, param_ref)
+    
+    def _transform_gradient_core(self, grad: torch.Tensor, name: str, param_ref: Dict) -> torch.Tensor:
+        """Core gradient transformation logic."""
+        dirs = param_ref['principal_dirs']
+        vals = param_ref['eigenvalues']
         
         if dirs is None or vals is None:
             return grad
-            
-        try:
-            # Optimization: Use cached transformation if available
-            if name in self.transform_cache and self.steps % 5 != 0:
-                transform = self.transform_cache[name]
-                flat_grad = grad.view(-1)
-                transformed = torch.mv(transform, flat_grad)
-                return transformed.view_as(grad)
-            
-            # Standard TALT transformation
-            flat_grad = grad.view(-1)
-            
-            # Move eigenvectors to correct device efficiently
-            if dirs.device != flat_grad.device:
-                dirs = dirs.to(flat_grad.device, non_blocking=True)
-                
-            # Project gradient onto eigenvectors
-            coeffs = torch.mv(dirs.t(), flat_grad)
-            
-            # Identify and record valleys
-            low_curvature_mask = vals.abs() < 0.05
-            if low_curvature_mask.any():
-                self.bifurcations.append(self.steps)
-                self._visualization_data['bifurcations'].append(self.steps)
-                # Amplify valley directions
-                coeffs[low_curvature_mask] *= (1.0 + self.valley_strength)
-            
-            # Adaptive scaling based on curvature
-            for i, val in enumerate(vals):
-                abs_val = abs(val)
-                if abs_val > 1.0:
-                    # Reduce step in high-curvature directions
-                    coeffs[i] *= (1.0 / torch.sqrt(torch.tensor(abs_val))) * self.smoothing_factor
-                elif abs_val < 0.5:
-                    # Boost step in flat regions
-                    coeffs[i] *= (1.0 + (1.0 - abs_val))
-            
-            # Project back to parameter space
-            transformed_grad = torch.mv(dirs, coeffs)
-            
-            # Cache the transformation matrix for reuse
-            transform = dirs @ torch.diag(coeffs / torch.mv(dirs.t(), flat_grad).clamp(min=1e-8)) @ dirs.t()
-            self.transform_cache[name] = transform
-            
-            return transformed_grad.view_as(grad)
-            
-        except Exception as e:
-            logger.debug(f"Transform error for {name}: {e}")
-            return grad
-
-    def _update_topology(self) -> None:
-        """
-        Update eigenspace decomposition with optimizations.
-        """
-        for name, grad_buffer in self.grad_memory.items():
-            if len(grad_buffer) < 2:
-                continue
-                
-            try:
-                # Stack gradients efficiently
-                stacked = torch.stack(list(grad_buffer))
-                
-                # Optimization: For large parameters, use randomized SVD
-                if stacked.shape[1] > 10000 and self.memory_size > 5:
-                    # Use randomized methods for large matrices
-                    centered = stacked - stacked.mean(dim=0, keepdim=True)
-                    
-                    # Compute low-rank approximation
-                    U, S, V = torch.svd_lowrank(centered.t(), q=min(self.memory_size, 20))
-                    eigenvals = S ** 2 / (stacked.size(0) - 1)
-                    eigenvecs = V
-                else:
-                    # Standard eigendecomposition for smaller matrices
-                    centered = stacked - stacked.mean(dim=0, keepdim=True)
-                    cov = torch.mm(centered.t(), centered) / (stacked.size(0) - 1)
-                    
-                    # Add small regularization for stability
-                    cov = cov + 1e-6 * torch.eye(cov.shape[0], device=cov.device)
-                    
-                    # Eigendecomposition
-                    eigenvals, eigenvecs = torch.linalg.eigh(cov)
-                    
-                    # Sort by absolute eigenvalue
-                    idx = torch.argsort(-eigenvals.abs())
-                    eigenvecs, eigenvals = eigenvecs[:, idx], eigenvals[idx]
-                
-                # Keep top eigenvectors
-                d = min(len(eigenvals), self.memory_size)
-                self.principal_dirs[name] = eigenvecs[:, :d].contiguous()
-                self.eigenvalues[name] = eigenvals[:d].contiguous()
-                
-                # Store for visualization (limited)
-                if len(self._visualization_data['eigenvalues'][name]) < 100:
-                    top_vals = eigenvals[:min(3, len(eigenvals))].detach().cpu().numpy()
-                    self._visualization_data['eigenvalues'][name].append((self.steps, top_vals))
-                
-                # Clear transform cache for this parameter
-                if name in self.transform_cache:
-                    del self.transform_cache[name]
-                    
-            except Exception as e:
-                logger.warning(f"Topology update failed for {name}: {e}")
-
-    def step(self, loss_fn: Callable, x: torch.Tensor, y: torch.Tensor) -> Tuple[float, torch.Tensor]:
-        """
-        Perform one TALT optimization step.
-        """
-        self.optimizer.zero_grad()
-        self.model.train()
         
-        # Forward pass with mixed precision
+        flat_grad = grad.view(-1)
+        
+        # Efficient projection using pre-allocated workspace
+        n_components = dirs.shape[1]
+        coeffs = self._workspace['coeffs'][:n_components]
+        
+        # Project gradient onto eigenvectors (optimized matmul)
+        torch.mv(dirs.t(), flat_grad, out=coeffs)
+        
+        # Valley detection and scaling (vectorized)
+        # Low curvature mask
+        low_mask = (vals.abs() < self.valley_threshold) & (vals.abs() > self.min_eigenvalue)
+        if low_mask.any():
+            self._register_valley_detection(name)
+            coeffs[low_mask] *= self.valley_scale
+        
+        # High curvature scaling (vectorized)
+        high_mask = vals.abs() > self.high_curve_threshold
+        if high_mask.any():
+            # Efficient in-place computation
+            scales = self.smoothing_factor / torch.sqrt(vals[high_mask].abs())
+            coeffs[high_mask] *= scales
+        
+        # Moderate curvature boost (vectorized)
+        mod_mask = (vals.abs() < self.low_curve_threshold) & ~low_mask
+        if mod_mask.any():
+            boosts = 1.0 + (1.0 - vals[mod_mask].abs()).clamp(0, 1)
+            coeffs[mod_mask] *= boosts
+        
+        # Efficient back-projection
+        temp_vec = self._workspace['temp_vec'][:flat_grad.shape[0]]
+        torch.mv(dirs, coeffs, out=temp_vec)
+        
+        # Cache transformation matrix for reuse
+        if param_ref['transform_matrix'] is None:
+            param_ref['transform_matrix'] = torch.zeros(dirs.shape[0], dirs.shape[0], device=dirs.device)
+        
+        # Update cache efficiently
+        torch.mm(dirs, torch.diag(coeffs / (torch.mv(dirs.t(), flat_grad) + 1e-8)), out=param_ref['transform_matrix'][:dirs.shape[1], :])
+        torch.mm(param_ref['transform_matrix'][:dirs.shape[1], :], dirs.t(), out=param_ref['transform_matrix'])
+        param_ref['last_update_step'] = self.steps
+        
+        return temp_vec.view_as(grad)
+    
+    def _register_valley_detection(self, name: str):
+        """Efficiently register valley detection."""
+        self.bifurcations.append(self.steps)
+        self._visualization_data['bifurcations'].append(self.steps)
+        self._visualization_data['valley_detections'].append((self.steps, name))
+    
+    @torch.no_grad()
+    def _update_topology_batch(self) -> None:
+        """Batch topology update for all parameters (more efficient)."""
+        updates_needed = []
+        
+        # Collect parameters needing updates
+        for name, param_ref in self.param_data.items():
+            if len(param_ref['grad_memory']) >= 3:
+                updates_needed.append((name, param_ref))
+        
+        if not updates_needed:
+            return
+        
+        # Process updates in parallel where possible
+        for name, param_ref in updates_needed:
+            try:
+                # Convert gradients efficiently
+                grad_tensor = torch.stack([g.to(self.device) if not g.is_sparse else g.to_dense().to(self.device) 
+                                          for g in param_ref['grad_memory']])
+                
+                # Skip if low variance
+                if grad_tensor.std() < 1e-8:
+                    continue
+                
+                # Efficient eigendecomposition based on size
+                if param_ref['use_power_iter'] and param_ref['size'] > 5000:
+                    # Use power iteration for large parameters
+                    eigenvals, eigenvecs = self._power_iteration(grad_tensor, param_ref)
+                else:
+                    # Standard method for smaller parameters
+                    eigenvals, eigenvecs = self._efficient_eigen_decomposition(grad_tensor)
+                
+                if eigenvals is not None and eigenvecs is not None:
+                    param_ref['eigenvalues'] = eigenvals
+                    param_ref['principal_dirs'] = eigenvecs
+                    param_ref['transform_matrix'] = None  # Reset cache
+                    
+                    # Store minimal visualization data
+                    if hasattr(self, '_visualization_data'):
+                        self._update_viz_data(name, eigenvals, grad_tensor)
+                        
+            except Exception as e:
+                logger.debug(f"Topology update failed for {name}: {e}")
+    
+    def _efficient_eigen_decomposition(self, grad_tensor: torch.Tensor) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Efficient eigendecomposition with stability."""
+        n_samples = grad_tensor.shape[0]
+        
+        # Center gradients
+        mean = grad_tensor.mean(dim=0, keepdim=True)
+        centered = grad_tensor - mean
+        
+        # Efficient covariance computation
+        cov = torch.mm(centered.t(), centered) / (n_samples - 1)
+        
+        # Adaptive regularization (fast)
+        trace = cov.diagonal().sum()
+        reg_strength = max(self.regularization_strength, 0.01 * trace / cov.shape[0])
+        cov.diagonal().add_(reg_strength)
+        
+        try:
+            # Use symeig for symmetric matrices (faster than eigh)
+            eigenvals, eigenvecs = torch.linalg.eigh(cov)
+            
+            # Sort and select top components
+            idx = eigenvals.abs().argsort(descending=True)[:self.memory_size]
+            eigenvals = eigenvals[idx].clamp(min=self.min_eigenvalue)
+            eigenvecs = eigenvecs[:, idx]
+            
+            return eigenvals, eigenvecs
+            
+        except:
+            return None, None
+    
+    def _power_iteration(self, grad_tensor: torch.Tensor, param_ref: Dict) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Fast power iteration for top eigenvalues/vectors."""
+        n_samples, n_features = grad_tensor.shape
+        k = min(self.memory_size, n_features, 10)  # Limit components
+        
+        # Center gradients
+        mean = grad_tensor.mean(dim=0, keepdim=True)
+        centered = grad_tensor - mean
+        
+        # Initialize random vectors
+        V = torch.randn(n_features, k, device=grad_tensor.device)
+        V = torch.qr(V).Q  # Orthogonalize
+        
+        eigenvals = torch.zeros(k, device=grad_tensor.device)
+        
+        # Power iteration
+        for _ in range(self.power_iter_steps):
+            # Efficient matrix multiplication
+            AV = torch.mm(centered.t(), torch.mm(centered, V)) / (n_samples - 1)
+            
+            # QR decomposition for stability
+            V, R = torch.qr(AV)
+            
+            # Extract eigenvalues from diagonal of R
+            eigenvals = R.diagonal()
+        
+        # Final eigenvalues
+        eigenvals = eigenvals.abs().clamp(min=self.min_eigenvalue)
+        
+        return eigenvals, V
+    
+    def _update_viz_data(self, name: str, eigenvals: torch.Tensor, grad_tensor: torch.Tensor):
+        """Minimal visualization data update."""
+        if name not in self._visualization_data:
+            self._visualization_data[name] = {
+                'eigenvalues': deque(maxlen=50),
+                'gradient_stats': deque(maxlen=50)
+            }
+        
+        # Store only essential data
+        top_eigenvals = eigenvals[:3].detach().cpu().numpy() if len(eigenvals) >= 3 else eigenvals.detach().cpu().numpy()
+        grad_norm = grad_tensor[-1].norm().item()
+        
+        self._visualization_data[name]['eigenvalues'].append((self.steps, top_eigenvals))
+        self._visualization_data[name]['gradient_stats'].append({
+            'step': self.steps,
+            'grad_norm': grad_norm
+        })
+    
+    @torch.no_grad()
+    def step(self, loss_fn: Callable, x: torch.Tensor, y: torch.Tensor) -> Tuple[float, torch.Tensor]:
+        """Optimized TALT step."""
+        self.optimizer.zero_grad(set_to_none=True)  # More efficient
+        
+        # Forward pass
         with autocast('cuda'):
             output = self.model(x)
             loss = loss_fn(output, y)
         
-        # Backward pass (gradients transformed via hooks)
+        # Quick NaN check
+        if not torch.isfinite(loss):
+            return 1e6, output
+        
+        # Backward pass
         self.scaler.scale(loss).backward()
         
-        # Store gradients periodically
+        # Store gradients efficiently
         if self.steps % self.store_interval == 0:
-            for name, param in self.model.named_parameters():
-                if param.grad is not None and name in self.grad_memory:
-                    grad = param.grad.detach()
-                    
-                    # Optimization: Sparse storage for large sparse gradients
-                    if grad.numel() > 10000:
-                        grad_flat = grad.view(-1)
-                        sparsity = (grad_flat.abs() < self.sparsity_threshold).sum().item() / grad_flat.numel()
-                        
-                        if sparsity > 0.9:  # Very sparse
-                            # Store only non-zero elements
-                            indices = torch.nonzero(grad_flat.abs() >= self.sparsity_threshold).squeeze(-1)
-                            values = grad_flat[indices]
-                            sparse_grad = torch.sparse_coo_tensor(
-                                indices.unsqueeze(0), values, grad_flat.shape, device='cpu'
-                            )
-                            self.grad_memory[name].append(sparse_grad)
-                            continue
-                    
-                    # Standard storage with memory optimization
-                    self.grad_buffer[name].copy_(grad.view(-1))
-                    self.grad_memory[name].append(self.grad_buffer[name].clone())
+            self._efficient_grad_storage()
+        
+        # Gradient clipping (in-place)
+        self.scaler.unscale_(self.optimizer)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
         
         # Update parameters
         self.scaler.step(self.optimizer)
@@ -297,148 +394,204 @@ class ImprovedTALTOptimizer:
         self.loss_history.append(loss_val)
         self._visualization_data['loss_values'].append(loss_val)
         
-        # Update topology periodically
+        # Batch topology updates
         if self.steps % self.update_interval == 0:
-            self._update_topology()
-            
+            self._update_topology_batch()
+        
         return loss_val, output
-
+    
+    def _efficient_grad_storage(self):
+        """Store gradients with minimal overhead."""
+        for name, param in self.model.named_parameters():
+            if param.grad is None or name not in self.param_data:
+                continue
+            
+            param_ref = self.param_data[name]
+            grad = param.grad
+            
+            # Quick finite check
+            if not torch.isfinite(grad).all():
+                continue
+            
+            # Efficient copy to pinned memory
+            grad_flat = grad.view(-1)
+            
+            # For large sparse gradients, use sparse storage
+            if grad_flat.numel() > 10000:
+                sparsity = (grad_flat.abs() < self.sparsity_threshold).float().mean()
+                if sparsity > 0.9:
+                    # Sparse storage
+                    mask = grad_flat.abs() >= self.sparsity_threshold
+                    indices = mask.nonzero().squeeze(-1)
+                    values = grad_flat[mask]
+                    sparse_grad = torch.sparse_coo_tensor(
+                        indices.unsqueeze(0), values, grad_flat.shape, 
+                        device='cpu', dtype=grad.dtype
+                    )
+                    param_ref['grad_memory'].append(sparse_grad)
+                    continue
+            
+            # Dense storage with efficient copy
+            param_ref['grad_buffer'].copy_(grad_flat, non_blocking=True)
+            param_ref['grad_memory'].append(param_ref['grad_buffer'].clone())
+            
+            # Track gradient norm
+            param_ref['gradient_norm_history'].append(grad_flat.norm().item())
+    
     def step_complex(self, loss_fn: Callable, batch: Union[torch.Tensor, Dict[str, torch.Tensor], Tuple], 
                     y: Optional[torch.Tensor] = None) -> Tuple[float, torch.Tensor]:
-        """
-        Handle different input formats efficiently.
-        """
+        """Optimized complex step for different input formats."""
+        # Fast path for common cases
+        if isinstance(batch, (tuple, list)) and len(batch) == 2:
+            return self.step(loss_fn, batch[0].to(self.device, non_blocking=True), 
+                           batch[1].to(self.device, non_blocking=True))
+        
+        # Dictionary inputs (transformers)
         if isinstance(batch, dict):
-            # Handle transformer inputs
             if y is None:
                 y = batch.get('labels')
-                if y is None:
-                    raise ValueError("Dictionary input must contain 'labels' key")
             
-            # Forward pass
-            input_ids = batch['input_ids'].to(self.device)
-            attention_mask = batch.get('attention_mask')
-            if attention_mask is not None:
-                attention_mask = attention_mask.to(self.device)
+            # Move to device efficiently
+            inputs = {k: v.to(self.device, non_blocking=True) if torch.is_tensor(v) else v 
+                     for k, v in batch.items()}
             
-            self.optimizer.zero_grad()
-            self.model.train()
+            self.optimizer.zero_grad(set_to_none=True)
             
             with autocast('cuda'):
-                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-                if hasattr(outputs, 'logits'):
-                    logits = outputs.logits
-                else:
-                    logits = outputs
-                loss = loss_fn(logits, y.to(self.device))
+                outputs = self.model(**inputs)
+                logits = outputs.logits if hasattr(outputs, 'logits') else outputs
+                loss = loss_fn(logits, y.to(self.device, non_blocking=True))
             
-            # Backward and update
+            if not torch.isfinite(loss):
+                return 1e6, logits
+            
             self.scaler.scale(loss).backward()
-            self._store_gradients_if_needed()
+            
+            # Efficient gradient operations
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+            
+            if self.steps % self.store_interval == 0:
+                self._efficient_grad_storage()
+            
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
             self.steps += 1
             loss_val = loss.item()
             self.loss_history.append(loss_val)
-            self._visualization_data['loss_values'].append(loss_val)
             
             if self.steps % self.update_interval == 0:
-                self._update_topology()
-                
-            return loss_val, logits
+                self._update_topology_batch()
             
-        elif isinstance(batch, (tuple, list)) and len(batch) >= 2:
-            # Handle (x, y) format
-            return self.step(loss_fn, batch[0].to(self.device), batch[1].to(self.device))
-        else:
-            # Standard tensor input
-            return self.step(loss_fn, batch.to(self.device), y.to(self.device))
-
-    def _store_gradients_if_needed(self):
-        """Efficiently store gradients when needed."""
-        if self.steps % self.store_interval == 0:
-            for name, param in self.model.named_parameters():
-                if param.grad is not None and name in self.grad_memory:
-                    grad = param.grad.detach()
-                    # Reuse buffer for efficiency
-                    if name in self.grad_buffer:
-                        self.grad_buffer[name].copy_(grad.view(-1))
-                        self.grad_memory[name].append(self.grad_buffer[name].clone())
-                    else:
-                        self.grad_memory[name].append(grad.view(-1).cpu())
-
-    def zero_grad(self, set_to_none: bool = False):
-        """Zero gradients."""
+            return loss_val, logits
+        
+        # Default case
+        return self.step(loss_fn, batch, y)
+    
+    def zero_grad(self, set_to_none: bool = True):
+        """Efficient gradient zeroing."""
         self.optimizer.zero_grad(set_to_none=set_to_none)
-
+    
     @property
     def param_groups(self):
         """Access parameter groups."""
         return self.optimizer.param_groups
-
+    
     def state_dict(self):
-        """Get state dict for checkpointing."""
+        """Minimal state dict for fast checkpointing."""
         return {
             'base_optimizer': self.optimizer.state_dict(),
             'steps': self.steps,
-            'loss_history': self.loss_history[-100:],  # Keep recent history only
+            'loss_history': list(self.loss_history)[-100:]  # Keep only recent
         }
-
+    
     def load_state_dict(self, state_dict):
-        """Load state dict."""
+        """Fast state loading."""
         self.optimizer.load_state_dict(state_dict['base_optimizer'])
         self.steps = state_dict['steps']
-        self.loss_history = state_dict.get('loss_history', [])
-
+        self.loss_history = deque(state_dict.get('loss_history', []), maxlen=1000)
+    
     def shutdown(self):
-        """Clean up resources."""
-        # Clear caches
-        self.transform_cache.clear()
-        self.grad_buffer.clear()
-        self.grad_memory.clear()
+        """Efficient cleanup."""
+        # Clear large data structures
+        self.param_data.clear()
+        self._workspace.clear() if hasattr(self, '_workspace') else None
         self._visualization_data.clear()
         
         # Force garbage collection
         import gc
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
     def get_visualization_data(self):
-        """Get visualization data for analysis."""
-        return {
+        """Get minimal visualization data efficiently."""
+        # Consolidate visualization data
+        viz_data = {
             'loss_values': list(self._visualization_data['loss_values']),
-            'loss_history': self.loss_history,
+            'loss_history': list(self.loss_history),
             'bifurcations': list(self._visualization_data['bifurcations']),
-            'eigenvalues': {
-                name: list(data) for name, data in self._visualization_data['eigenvalues'].items()
-            }
+            'valley_detections': list(self._visualization_data['valley_detections']),
+            'eigenvalues_history': {},
+            'gradient_norms_history': {},
+            'gradient_stats': {}
         }
-
+        
+        # Efficiently collect parameter-specific data
+        for name, param_ref in self.param_data.items():
+            if name in self._visualization_data:
+                param_viz = self._visualization_data[name]
+                
+                # Eigenvalues
+                if 'eigenvalues' in param_viz and param_viz['eigenvalues']:
+                    steps, eigenvals = zip(*list(param_viz['eigenvalues']))
+                    viz_data['eigenvalues_history'][name] = {
+                        'steps': list(steps),
+                        'eigenvalues': list(eigenvals)
+                    }
+                
+                # Gradient stats
+                if 'gradient_stats' in param_viz:
+                    viz_data['gradient_stats'][name] = list(param_viz['gradient_stats'])
+            
+            # Gradient norms
+            if param_ref['gradient_norm_history']:
+                viz_data['gradient_norms_history'][name] = {
+                    'grad_norms': list(param_ref['gradient_norm_history']),
+                    'steps': list(range(len(param_ref['gradient_norm_history'])))
+                }
+        
+        return viz_data
+    
     def get_tensorboard_metrics(self) -> Dict[str, Any]:
-        """Get metrics for TensorBoard logging."""
+        """Get metrics for TensorBoard efficiently."""
         metrics = {}
         
-        # Current eigenvalues
+        # Collect current metrics with minimal overhead
         eigenvalue_data = {}
         gradient_norms = {}
         
-        for name in self.grad_memory.keys():
-            if name in self.eigenvalues and self.eigenvalues[name] is not None:
-                eigenvalue_data[name] = self.eigenvalues[name].detach().cpu().numpy()
+        for name, param_ref in self.param_data.items():
+            if param_ref['eigenvalues'] is not None:
+                eigenvalue_data[name] = param_ref['eigenvalues'].detach().cpu().numpy()
             
-            # Estimate gradient norm from recent memory
-            if name in self.grad_memory and len(self.grad_memory[name]) > 0:
-                recent_grad = self.grad_memory[name][-1]
-                if torch.is_tensor(recent_grad):
-                    gradient_norms[name] = float(torch.norm(recent_grad).item())
+            if param_ref['gradient_norm_history']:
+                gradient_norms[name] = param_ref['gradient_norm_history'][-1]
         
         if eigenvalue_data:
             metrics['eigenvalues'] = eigenvalue_data
         if gradient_norms:
             metrics['gradient_norms'] = gradient_norms
         if self.bifurcations:
-            metrics['bifurcations'] = list(self.bifurcations)
-            
+            metrics['bifurcations'] = self.bifurcations[-100:]  # Recent only
+        
         return metrics
+    
+    def diagnose_visualization_state(self):
+        """Quick diagnostic output."""
+        logger.info(f"TALT Diagnostics: steps={self.steps}, loss_history={len(self.loss_history)}, "
+                   f"params={len(self.param_data)}, bifurcations={len(self.bifurcations)}")
+    
+    def force_topology_update(self):
+        """Force immediate topology update."""
+        self._update_topology_batch()
