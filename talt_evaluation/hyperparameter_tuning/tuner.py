@@ -8,7 +8,7 @@ import torch
 import optuna
 import numpy as np
 import matplotlib.pyplot as plt
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -173,7 +173,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast():
+                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
                             outputs = model(
                                 input_ids=input_ids,
                                 attention_mask=attention_mask
@@ -201,7 +201,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast():
+                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
                             outputs = model(inputs)
                             loss = criterion(outputs, labels)
                         
