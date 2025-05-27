@@ -473,3 +473,26 @@ class ImprovedTALTOptimizer:
     def force_topology_update(self):
         """Force immediate topology update."""
         self._update_topology()
+
+    # Add this diagnostic method to ImprovedTALTOptimizer class
+    def diagnose_convergence(self):
+        """Diagnose slow convergence issues."""
+        print("\n=== TALT Convergence Diagnostics ===")
+        
+        # Check how many parameters are being tracked
+        total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        tracked_params = len(self.param_data)
+        print(f"Tracking {tracked_params} parameters out of {total_params} total")
+        
+        # Check eigenvalue statistics
+        for name, param_ref in self.param_data.items():
+            if param_ref['eigenvalues'] is not None:
+                eigenvals = param_ref['eigenvalues'].cpu().numpy()
+                print(f"\n{name}:")
+                print(f"  Eigenvalues range: [{eigenvals.min():.6f}, {eigenvals.max():.6f}]")
+                print(f"  Valleys detected: {(eigenvals.abs() < self.valley_threshold).sum()}")
+                print(f"  High curvature: {(eigenvals.abs() > 1.0).sum()}")
+        
+        print(f"\nTotal bifurcations: {len(self.bifurcations)}")
+        print(f"Valley threshold: {self.valley_threshold}")
+        print(f"Valley amplification: {self.valley_scale}x")
