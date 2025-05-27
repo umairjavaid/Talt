@@ -112,10 +112,10 @@ talt_evaluation/
 To run a single experiment:
 
 ```bash
-python run_experiment.py --name resnet50_cifar100_talt \
+python run_experiment.py --name resnet50_cifar100_improved_talt \
                          --architecture resnet50 \
                          --dataset cifar100 \
-                         --optimizer talt \
+                         --optimizer improved-talt \
                          --epochs 30 \
                          --batch-size 128
 ```
@@ -123,10 +123,10 @@ python run_experiment.py --name resnet50_cifar100_talt \
 ### Running BERT on GLUE SST-2
 
 ```bash
-python run_experiment.py --name bert_sst2_talt \
+python run_experiment.py --name bert_sst2_improved_talt \
                          --architecture bert-base \
                          --dataset glue-sst2 \
-                         --optimizer talt \
+                         --optimizer improved-talt \
                          --epochs 5 \
                          --batch-size 32 \
                          --lr 2e-5
@@ -138,7 +138,7 @@ python run_experiment.py --name bert_sst2_talt \
 python run_experiment.py --name resnet50_cifar100_tuning \
                          --architecture resnet50 \
                          --dataset cifar100 \
-                         --optimizer talt \
+                         --optimizer improved-talt \
                          --tune-hyperparams \
                          --n-trials 30
 ```
@@ -161,10 +161,10 @@ You can define batch experiments in JSON files. For example:
   "description": "Comparison of TALT vs SGD on ResNet models",
   "experiments": [
     {
-      "name": "resnet18_cifar10_talt",
+      "name": "resnet18_cifar10_improved_talt",
       "architecture": "resnet18",
       "dataset": "cifar10",
-      "optimizer": "talt",
+      "optimizer": "improved-talt",
       "epochs": 30,
       "batch-size": 128,
       "lr": 0.1
@@ -194,7 +194,6 @@ The framework includes an Optuna-based hyperparameter tuning module for TALT. Tu
 - `grad_store_interval`
 - `min_param_size`
 - `max_param_size`
-- `sparsity_threshold`
 
 ## Results and Visualizations
 

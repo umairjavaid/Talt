@@ -143,7 +143,6 @@ def parse_args():
     # Improved TALT specific parameters
     parser.add_argument('--min-param-size', type=int, default=100, help='Improved TALT minimum parameter size to track')
     parser.add_argument('--max-param-size', type=int, default=1000000, help='Improved TALT maximum parameter size to track')
-    parser.add_argument('--sparsity-threshold', type=float, default=0.01, help='Improved TALT sparsity threshold')
     # Original TALT specific parameters
     parser.add_argument('--cov-decay', type=float, default=0.99, help='Original TALT covariance decay')
     parser.add_argument('--adaptive-reg', type=float, default=1e-5, help='Original TALT adaptive regularization')
@@ -232,7 +231,6 @@ def main():
             talt_params.update({
                 'min_param_size': args.min_param_size,
                 'max_param_size': args.max_param_size,
-                'sparsity_threshold': args.sparsity_threshold,
             })
         elif args.optimizer == 'original-talt':
             talt_params.update({

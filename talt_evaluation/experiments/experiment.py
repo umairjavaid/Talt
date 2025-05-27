@@ -150,7 +150,6 @@ class Experiment:
                     'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
                     'min_param_size': self.optimizer_config.get('min_param_size', 100),
                     'max_param_size': self.optimizer_config.get('max_param_size', 1000000),
-                    'sparsity_threshold': self.optimizer_config.get('sparsity_threshold', 0.01),
                     'device': self.device
                 }
                 

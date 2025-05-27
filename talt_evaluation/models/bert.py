@@ -63,8 +63,7 @@ class BERTModel(nn.Module):
                 'smoothing_factor': 0.5,
                 'grad_store_interval': 10,
                 'min_param_size': 100,
-                'max_param_size': 10000000,
-                'sparsity_threshold': 0.01
+                'max_param_size': 10000000
             },
             'original-talt': {
                 'lr': 2e-5,
@@ -87,8 +86,7 @@ class BERTModel(nn.Module):
             'smoothing_factor': {'type': 'float', 'low': 0.3, 'high': 0.8},
             'grad_store_interval': {'type': 'int', 'low': 5, 'high': 20},
             'min_param_size': {'type': 'int', 'low': 50, 'high': 1000},
-            'max_param_size': {'type': 'int', 'low': 1000000, 'high': 50000000},
-            'sparsity_threshold': {'type': 'float', 'low': 0.001, 'high': 0.1}
+            'max_param_size': {'type': 'int', 'low': 1000000, 'high': 50000000}
         }
 
 def get_bert(model_variant='base', dataset='glue-sst2', pretrained=True):

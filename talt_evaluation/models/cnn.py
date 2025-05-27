@@ -63,8 +63,7 @@ class SimpleCNN(nn.Module):
                 'smoothing_factor': 0.3,
                 'grad_store_interval': 5,
                 'min_param_size': 100,
-                'max_param_size': 1000000,
-                'sparsity_threshold': 0.01
+                'max_param_size': 1000000
             },
             'original-talt': {
                 'lr': 0.01,
@@ -87,8 +86,7 @@ class SimpleCNN(nn.Module):
             'smoothing_factor': {'type': 'float', 'low': 0.1, 'high': 0.7},
             'grad_store_interval': {'type': 'int', 'low': 3, 'high': 10},
             'min_param_size': {'type': 'int', 'low': 50, 'high': 500},
-            'max_param_size': {'type': 'int', 'low': 100000, 'high': 5000000},
-            'sparsity_threshold': {'type': 'float', 'low': 0.001, 'high': 0.1}
+            'max_param_size': {'type': 'int', 'low': 100000, 'high': 5000000}
         }
     
     def architecture_specific_visualization(self, inputs):

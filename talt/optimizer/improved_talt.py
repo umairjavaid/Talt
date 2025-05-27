@@ -246,15 +246,14 @@ class ImprovedTALTOptimizer:
     def _store_gradients(self):
         """Store gradients efficiently."""
         for name, param_ref in self.param_data.items():
-            param = self.model.state_dict()[name.replace('.', '_').replace('/', '_')]
-            
             # Get parameter by name
+            param = None  # Initialize param to None
             for n, p in self.model.named_parameters():
                 if n == name:
                     param = p
                     break
             
-            if param.grad is None:
+            if param is None or param.grad is None: # Check if param was found
                 continue
             
             grad = param.grad.detach()
@@ -274,7 +273,7 @@ class ImprovedTALTOptimizer:
         
         # Forward pass
         if self.use_amp:
-            with autocast(device_type='cuda', dtype=torch.float16):
+            with autocast():
                 output = self.model(x)
                 loss = loss_fn(output, y)
         else:
@@ -345,7 +344,7 @@ class ImprovedTALTOptimizer:
             
             # Forward pass
             if self.use_amp:
-                with autocast(device_type='cuda', dtype=torch.float16):
+                with autocast():
                     outputs = self.model(**batch)
                     if hasattr(outputs, 'loss'):
                         loss = outputs.loss

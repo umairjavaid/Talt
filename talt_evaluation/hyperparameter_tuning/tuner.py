@@ -129,7 +129,7 @@ class TaltTuner:
             if 'update_interval' in talt_params:
                 talt_params['topology_update_interval'] = talt_params.pop('update_interval')
             # Remove parameters that don't exist in original TALT
-            for param in ['min_param_size', 'max_param_size', 'sparsity_threshold']:
+            for param in ['min_param_size', 'max_param_size']:
                 talt_params.pop(param, None)
         
         # Create optimizer with properly separated parameters
@@ -173,7 +173,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
+                        with autocast():
                             outputs = model(
                                 input_ids=input_ids,
                                 attention_mask=attention_mask
@@ -201,7 +201,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
+                        with autocast():
                             outputs = model(inputs)
                             loss = criterion(outputs, labels)
                         

@@ -277,7 +277,7 @@ class TALTOptimizer:
         self.model.train()
         
         # Forward pass with mixed precision
-        with autocast(device_type='cuda'):
+        with autocast():
             output = self.model(x)
             loss = loss_fn(output, y)
         
