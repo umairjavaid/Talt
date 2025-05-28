@@ -290,55 +290,49 @@ class TALTVisualizer:
     def visualize_gradient_transformations(self,
                                          save_path: Optional[str] = None,
                                          show: bool = True) -> None:
-        """Visualize gradient transformations over time."""
+        """Visualizes gradient transformations showing before/after statistics."""
         if not self._check_matplotlib(): return
-        
-        # Updated to use correct data key
-        grad_memory = self.data.get('grad_memory_for_transformations', self.data.get('grad_memory', {}))
-        
-        if not grad_memory:
-            logger.info("No gradient transformation data available")
+        if not self.data['grad_memory_for_transformations']:
+            logger.info("No gradient transformation data available to plot.")
             return
-            
-        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(15, 10))
         
-        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-        fig.suptitle("Gradient Transformations Analysis")
+        # Plot gradient transformation statistics
+        subplot_idx = 1
+        max_subplots = 6
         
-        # Plot gradient norms for different parameters
-        param_items = list(grad_memory.items())[:4]  # Limit to 4 parameters
-        
-        for i, (param_name, grad_data) in enumerate(param_items):
-            ax = axes[i // 2, i % 2]
-            
-            if isinstance(grad_data, list) and grad_data:
-                # Handle different grad_data formats
-                if isinstance(grad_data[0], tuple) and len(grad_data[0]) >= 2:
-                    # Format: [(step, norm, ...)]
-                    steps, norms, _ = zip(*grad_data)
-                elif hasattr(grad_data[0], 'norm'):
-                    # Tensor objects
-                    steps = list(range(len(grad_data)))
-                    norms = [g.norm().item() if hasattr(g, 'norm') else float(g) for g in grad_data]
-                else:
-                    # Simple list of values
-                    steps = list(range(len(grad_data)))
-                    norms = grad_data
+        for param_name, transform_data in self.data['grad_memory_for_transformations'].items():
+            if subplot_idx > max_subplots:
+                break
                 
-                ax.plot(steps, norms, label=f'{param_name} grad norm')
-                ax.set_title(f"Gradient Norm: {param_name}")
-                ax.set_xlabel("Step")
-                ax.set_ylabel("Norm")
-                ax.grid(True, alpha=0.3)
-            else:
-                ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
-                ax.set_title(f"Gradient Norm: {param_name}")
+            plt.subplot(2, 3, subplot_idx)
+            
+            if isinstance(transform_data, list) and len(transform_data) > 0:
+                # Extract before/after gradient norms if available
+                steps = list(range(len(transform_data)))
+                if isinstance(transform_data[0], dict):
+                    before_norms = [item.get('before_norm', 0) for item in transform_data]
+                    after_norms = [item.get('after_norm', 0) for item in transform_data]
+                    
+                    plt.plot(steps, before_norms, label='Before', alpha=0.7)
+                    plt.plot(steps, after_norms, label='After', alpha=0.7)
+                else:
+                    # Fallback: treat as gradient norm history
+                    plt.plot(steps, transform_data, label='Gradient Norm', alpha=0.7)
+                
+                plt.title(f'Gradient Transform: {param_name.split(".")[-1]}')
+                plt.xlabel('Step')
+                plt.ylabel('Gradient Norm')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+            
+            subplot_idx += 1
         
         plt.tight_layout()
         if save_path:
-            full_path = os.path.join(self.output_dir, save_path) if not os.path.isabs(save_path) else save_path
-            plt.savefig(full_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Gradient transformations plot saved to {full_path}")
+            plt.savefig(os.path.join(self.output_dir, save_path))
+            logger.info(f"Gradient transformations plot saved to {os.path.join(self.output_dir, save_path)}")
         if show:
             plt.show()
         plt.close()
@@ -346,41 +340,39 @@ class TALTVisualizer:
     def visualize_loss_landscape_with_valleys(self,
                                             save_path: Optional[str] = None,
                                             show: bool = True) -> None:
-        """Visualize loss landscape with valley/bifurcation detections."""
+        """Visualizes loss landscape with detected valleys marked."""
         if not self._check_matplotlib(): return
-        
-        # Updated to use correct data keys
-        loss_history = self.data.get('loss_history_for_landscape', self.data.get('loss_history', list(self.data['loss_values'])))
-        detection_points = self.data.get('valley_detections', [])
-        
-        if not loss_history:
-            logger.info("No loss history to plot")
+        if not self.data['loss_history_for_landscape']:
+            logger.info("No loss landscape data available to plot.")
             return
-            
-        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(12, 8))
         
-        plt.figure(figsize=(10, 6))
-        plt.plot(loss_history, 'b-', label='Loss', linewidth=1.5)
+        loss_history = self.data['loss_history_for_landscape']
+        steps = list(range(len(loss_history)))
+        
+        # Plot loss trajectory
+        plt.plot(steps, loss_history, 'b-', alpha=0.7, label='Loss')
         
         # Mark valley detections
-        first_detection_labeled = False
-        for step in detection_points:
-            if step < len(loss_history):
-                label = 'Valley Detection' if not first_detection_labeled else None
-                plt.axvline(x=step, color='red', linestyle='--', alpha=0.7, label=label)
-                first_detection_labeled = True
-                
-        plt.title("Loss Landscape with Valley/Bifurcation Detections")
-        plt.xlabel("Training Step")
-        plt.ylabel("Loss")
-        if first_detection_labeled or len(loss_history) > 0:
-            plt.legend()
+        for valley_step in self.data['valley_detections']:
+            if valley_step < len(loss_history):
+                plt.axvline(x=valley_step, color='red', linestyle='--', alpha=0.6, label='Valley' if valley_step == self.data['valley_detections'][0] else None)
+        
+        # Mark bifurcation points
+        for bifurcation_step in self.data['bifurcations']:
+            if bifurcation_step < len(loss_history):
+                plt.axvline(x=bifurcation_step, color='green', linestyle=':', alpha=0.6, label='Bifurcation' if bifurcation_step == self.data['bifurcations'][0] else None)
+        
+        plt.title('Loss Landscape with Valley Detection')
+        plt.xlabel('Training Step')
+        plt.ylabel('Loss')
+        plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.tight_layout()
+        
         if save_path:
-            full_path = os.path.join(self.output_dir, save_path) if not os.path.isabs(save_path) else save_path
-            plt.savefig(full_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Loss landscape plot saved to {full_path}")
+            plt.savefig(os.path.join(self.output_dir, save_path))
+            logger.info(f"Loss landscape plot saved to {os.path.join(self.output_dir, save_path)}")
         if show:
             plt.show()
         plt.close()

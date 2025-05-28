@@ -57,12 +57,12 @@ class BERTModel(nn.Module):
             },
             'improved-talt': {
                 'lr': 2e-5,
-                'memory_size': 10,
-                'update_interval': 50,
-                'valley_strength': 0.1,
-                'smoothing_factor': 0.5,
-                'grad_store_interval': 10,
-                'min_param_size': 100,
+                'memory_size': 20,  # Increased for transformer parameters
+                'update_interval': 25,  # Balanced for transformers
+                'valley_strength': 0.05,
+                'smoothing_factor': 0.3,
+                'grad_store_interval': 5,
+                'min_param_size': 50,
                 'max_param_size': 10000000
             },
             'original-talt': {

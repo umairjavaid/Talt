@@ -86,29 +86,68 @@ class TaltTuner:
             'momentum': 0.9
         }
         
-        # Sample TALT-specific hyperparameters from search space
+        # Sample TALT-specific hyperparameters from search space with enhanced ranges for theoretical fixes
         talt_params = {}
         for param_name, param_config in self.search_space.items():
             if param_config['type'] == 'int':
-                talt_params[param_name] = trial.suggest_int(
-                    param_name, 
-                    param_config['low'], 
-                    param_config['high']
-                )
-            elif param_config['type'] == 'float':
-                if param_config.get('log', False):
-                    talt_params[param_name] = trial.suggest_float(
+                # Enhanced memory_size range to account for adaptive sizing improvements
+                if param_name == 'memory_size':
+                    talt_params[param_name] = trial.suggest_int(
                         param_name, 
-                        param_config['low'], 
-                        param_config['high'],
-                        log=True
+                        max(param_config['low'], 20),  # Minimum 20 for better eigenspace estimation with fixes
+                        max(param_config['high'], 40)  # Allow up to 40 with adaptive sizing
+                    )
+                elif param_name == 'update_interval':
+                    # More frequent updates with theoretical fixes
+                    talt_params[param_name] = trial.suggest_int(
+                        param_name, 
+                        max(param_config['low'], 10),  # More frequent updates
+                        max(param_config['high'], 25)  # Still reasonable
                     )
                 else:
-                    talt_params[param_name] = trial.suggest_float(
+                    talt_params[param_name] = trial.suggest_int(
                         param_name, 
                         param_config['low'], 
                         param_config['high']
                     )
+            elif param_config['type'] == 'float':
+                # Enhanced ranges for valley_strength and smoothing_factor with theoretical fixes
+                if param_name in ['valley_strength', 'smoothing_factor']:
+                    talt_params[param_name] = trial.suggest_float(
+                        param_name, 
+                        max(param_config['low'], 0.05),  # Minimum 0.05 for better effect
+                        min(param_config['high'], 0.3),  # Maximum 0.3 for stability with fixes
+                        log=param_config.get('log', False)
+                    )
+                else:
+                    if param_config.get('log', False):
+                        talt_params[param_name] = trial.suggest_float(
+                            param_name, 
+                            param_config['low'], 
+                            param_config['high'],
+                            log=True
+                        )
+                    else:
+                        talt_params[param_name] = trial.suggest_float(
+                            param_name, 
+                            param_config['low'], 
+                            param_config['high']
+                        )
+        
+        # Add theoretical fixes parameters with reasonable defaults
+        talt_params['use_adaptive_memory'] = True
+        talt_params['use_gradient_smoothing'] = trial.suggest_categorical('use_gradient_smoothing', [True, False])
+        talt_params['use_adaptive_thresholds'] = True  # Always enabled as it's crucial
+        talt_params['use_parameter_normalization'] = trial.suggest_categorical('use_parameter_normalization', [True, False])
+        talt_params['use_incremental_covariance'] = trial.suggest_categorical('use_incremental_covariance', [True, False])
+        
+        if talt_params.get('use_gradient_smoothing', False):
+            talt_params['smoothing_beta'] = trial.suggest_float('smoothing_beta', 0.8, 0.95)
+        
+        if talt_params.get('use_incremental_covariance', False):
+            talt_params['eigenspace_blend_factor'] = trial.suggest_float('eigenspace_blend_factor', 0.5, 0.9)
+        
+        talt_params['min_memory_ratio'] = trial.suggest_float('min_memory_ratio', 0.05, 0.2)
         
         # Add device and lr to TALT parameters
         talt_params['device'] = self.device
@@ -173,7 +212,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast():
+                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
                             outputs = model(
                                 input_ids=input_ids,
                                 attention_mask=attention_mask
@@ -201,7 +240,7 @@ class TaltTuner:
                     optimizer.zero_grad()
                     
                     if scaler is not None:
-                        with autocast():
+                        with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
                             outputs = model(inputs)
                             loss = criterion(outputs, labels)
                         

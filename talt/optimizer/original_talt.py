@@ -43,7 +43,11 @@ class TALTOptimizer:
         smoothing_factor: float = 0.3,
         grad_store_interval: int = 5,
         min_param_size: int = 10,
-        device: Union[str, torch.device] = "cuda"
+        device: Union[str, torch.device] = "cuda",
+        # New theoretical fix parameters for original TALT
+        use_adaptive_memory: bool = True,
+        use_adaptive_thresholds: bool = True,
+        min_memory_ratio: float = 0.1
     ):
         # Core setup
         self.model = model
@@ -96,41 +100,83 @@ class TALTOptimizer:
             total_params += 1
             if param.requires_grad and param.numel() > adaptive_threshold:
                 registered_params += 1
-                self.grad_memory[name] = deque(maxlen=self.memory_size)
+                
+                # ENHANCED THEORETICAL FIX 1: More sophisticated adaptive memory size
+                param_size = param.numel()
+                if self.use_adaptive_memory:
+                    adaptive_memory_size = max(
+                        self.memory_size,
+                        min(int(2 * np.sqrt(param_size)), 50),  # 2*sqrt(d), max 50
+                        int(param_size * self.min_memory_ratio)  # min % of dimension
+                    )
+                else:
+                    adaptive_memory_size = max(
+                        self.memory_size,
+                        min(int(2 * np.sqrt(param_size)), 50)
+                    )
+                
+                self.grad_memory[name] = deque(maxlen=adaptive_memory_size)
                 self.principal_dirs[name] = None
                 self.eigenvalues[name] = None
                 self._visualization_data['eigenvalues'][name] = []
                 
-                logger.debug(f"Registered Original TALT hook for {name} (size: {param.numel()})")
+                # Enhanced parameter-specific state for fixes
+                if not hasattr(self, 'param_state'):
+                    self.param_state = {}
+                self.param_state[name] = {
+                    'grad_norm_ema': 1.0,
+                    'grad_norm_alpha': 0.9,
+                    'cov_ema': None,
+                    'cov_alpha': 0.95,
+                    'eigenvalue_history': deque(maxlen=15),  # Increased for better statistics
+                    'adaptive_memory_size': adaptive_memory_size,
+                    # Additional tracking for enhanced fixes
+                    'eigenvalue_statistics': {
+                        'valley_threshold_history': deque(maxlen=10),
+                        'high_curve_threshold_history': deque(maxlen=10)
+                    }
+                }
+                
+                logger.debug(f"Enhanced Original TALT hook for {name} (size: {param.numel()}, adaptive_memory: {adaptive_memory_size})")
                 
                 # Hook transforms gradients using eigenspace analysis
                 param.register_hook(lambda grad, name=name: self._transform_gradient(grad, name))
         
-        logger.info(f"Original TALT: Registered hooks for {registered_params}/{total_params} parameters")
+        logger.info(f"Enhanced Original TALT: Registered hooks for {registered_params}/{total_params} parameters with theoretical fixes")
         if registered_params == 0:
             logger.warning("No parameters registered for Original TALT! Consider lowering min_param_size.")
 
     def _transform_gradient(self, grad: torch.Tensor, name: str) -> torch.Tensor:
-        """
-        Transform gradient using exact TALT algorithm.
-        
-        Args:
-            grad: Original gradient tensor
-            name: Parameter name
-            
-        Returns:
-            Transformed gradient tensor
-        """
+        """Transform gradient using enhanced TALT algorithm with comprehensive theoretical fixes."""
         if name not in self.grad_memory:
             return grad
         
         # Log gradient transform calls periodically
         if self.steps % 50 == 0:
-            logger.debug(f"Original TALT gradient transform called for {name} at step {self.steps}")
+            logger.debug(f"Enhanced Original TALT gradient transform called for {name} at step {self.steps}")
             
         try:
+            # ENHANCED THEORETICAL FIX 4: Improved parameter-specific gradient normalization
+            param_state = getattr(self, 'param_state', {}).get(name, {})
+            if param_state:
+                grad_norm = grad.norm().item()
+                if grad_norm > 0:
+                    # More sophisticated running average with adaptive decay
+                    decay_rate = max(0.8, 1.0 - 1.0 / (self.steps + 1))  # Adaptive decay
+                    param_state['grad_norm_ema'] = (
+                        decay_rate * param_state['grad_norm_ema'] + 
+                        (1 - decay_rate) * grad_norm
+                    )
+                    
+                    # Normalize gradient by running average magnitude
+                    normalized_grad = grad / max(param_state['grad_norm_ema'], 1e-8)
+                else:
+                    normalized_grad = grad
+            else:
+                normalized_grad = grad
+            
             # Store gradient in memory
-            flat_grad = grad.view(-1).detach().cpu()
+            flat_grad = normalized_grad.view(-1).detach().cpu()
             self.grad_memory[name].append(flat_grad)
             
             # Only proceed if we have enough gradients
@@ -138,51 +184,98 @@ class TALTOptimizer:
                 return grad
                 
             # Convert to matrix G = [g₁, g₂, ..., gₖ]
-            # FIX: Stack gradients as rows instead of columns for proper dimensions
-            grad_matrix = torch.stack(list(self.grad_memory[name]), dim=0)  # [k, d] instead of [d, k]
+            grad_matrix = torch.stack(list(self.grad_memory[name]), dim=0)  # [k, d]
             
             # Center the gradients: Ḡ = G - mean(G)
-            grad_mean = grad_matrix.mean(dim=0, keepdim=True)  # Mean along the sample dimension
+            grad_mean = grad_matrix.mean(dim=0, keepdim=True)
             centered_grads = grad_matrix - grad_mean
             
-            # Compute covariance matrix: C = ḠᵀḠ/(k-1)
-            k = centered_grads.shape[0]  # Number of samples
-            # FIX: Ensure proper matrix multiplication order for covariance
-            covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)  # [d, d]
+            # ENHANCED THEORETICAL FIX 3: More sophisticated exponential moving average for covariance
+            recent_grad = centered_grads[-1]  # Most recent centered gradient
             
-            # Add regularization for numerical stability
-            reg = 1e-6 * torch.eye(covariance.shape[0])
+            if param_state and param_state.get('cov_ema') is None:
+                # Initialize with robust covariance estimate
+                k = centered_grads.shape[0]
+                if k > 1:
+                    covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)
+                else:
+                    covariance = torch.outer(recent_grad, recent_grad)
+                param_state['cov_ema'] = covariance
+            elif param_state:
+                # Enhanced exponential moving average with adaptive alpha
+                steps_factor = min(self.steps / 100.0, 1.0)  # Gradually increase weight of history
+                adaptive_alpha = param_state['cov_alpha'] * steps_factor + 0.5 * (1 - steps_factor)
+                
+                new_cov = torch.outer(recent_grad, recent_grad)
+                param_state['cov_ema'] = (
+                    adaptive_alpha * param_state['cov_ema'] + 
+                    (1 - adaptive_alpha) * new_cov
+                )
+                covariance = param_state['cov_ema']
+            else:
+                # Fallback to original method
+                k = centered_grads.shape[0]
+                covariance = torch.matmul(centered_grads.t(), centered_grads) / (k - 1)
+            
+            # Enhanced regularization for numerical stability
+            reg = max(1e-6, 1e-4 * torch.trace(covariance) / covariance.shape[0]) * torch.eye(covariance.shape[0])
             covariance = covariance + reg
             
             # Eigendecomposition: C = VΛVᵀ
             try:
                 eigenvalues, eigenvectors = torch.linalg.eigh(covariance)
                 
-                logger.debug(f"Original TALT computed {len(eigenvalues)} eigenvalues for {name}")
+                logger.debug(f"Enhanced Original TALT computed {len(eigenvalues)} eigenvalues for {name}")
                 
                 # Store eigenvalues for visualization
                 self.eigenvalues[name] = eigenvalues.detach()
                 self.principal_dirs[name] = eigenvectors.detach()
                 
+                # ENHANCED THEORETICAL FIX 2: Improved eigenvalue history and adaptive thresholds
+                if param_state:
+                    param_state['eigenvalue_history'].append(eigenvalues.clone())
+                
                 # Project current gradient into eigenspace
-                # FIX: Ensure proper projection of current gradient
                 current_centered = flat_grad - grad_mean.squeeze()
                 coeffs = torch.matmul(eigenvectors.t(), current_centered)
                 
+                # ENHANCED THEORETICAL FIX 2: More sophisticated adaptive threshold calculation
+                if param_state and len(param_state['eigenvalue_history']) >= 5 and self.use_adaptive_thresholds:
+                    # Use more history for stable threshold estimation
+                    recent_eigenvals = torch.cat(list(param_state['eigenvalue_history'])[-5:])
+                    eigenval_abs = recent_eigenvals.abs()
+                    
+                    # Multiple threshold strategies
+                    percentile_threshold = torch.quantile(eigenval_abs, 0.2).item()  # Bottom 20%
+                    statistical_threshold = eigenval_abs.mean().item() - eigenval_abs.std().item()
+                    
+                    # Combine strategies with bounds
+                    adaptive_valley_threshold = max(
+                        min(percentile_threshold, statistical_threshold),
+                        0.01  # Minimum threshold
+                    )
+                    
+                    # Store threshold history for analysis
+                    if 'eigenvalue_statistics' in param_state:
+                        param_state['eigenvalue_statistics']['valley_threshold_history'].append(adaptive_valley_threshold)
+                else:
+                    adaptive_valley_threshold = 0.1  # Default threshold
+                
                 # Transform coefficients based on eigenvalues
-                # High eigenvalues (high curvature) -> reduce step size
-                # Low eigenvalues (flat regions) -> increase step size
                 eigenvals_clamped = torch.clamp(eigenvalues, min=1e-8)
                 
                 scale_factors = torch.ones_like(eigenvals_clamped)
                 
-                # For high curvature directions (large eigenvalues)
-                high_curvature_mask = eigenvals_clamped > 1.0
+                # For high curvature directions (large eigenvalues) - more conservative
+                high_curvature_threshold = max(1.0, adaptive_valley_threshold * 5.0)  # Adaptive high threshold
+                high_curvature_mask = eigenvals_clamped > high_curvature_threshold
                 scale_factors[high_curvature_mask] = self.smoothing_factor / torch.sqrt(eigenvals_clamped[high_curvature_mask])
                 
-                # For flat regions (small eigenvalues)
-                flat_mask = eigenvals_clamped < 0.1
-                scale_factors[flat_mask] = 1.0 + self.valley_strength
+                # For flat regions (small eigenvalues) with enhanced adaptive threshold
+                flat_mask = eigenvals_clamped < adaptive_valley_threshold
+                # More conservative valley amplification based on optimization progress
+                valley_amplification = min(self.valley_strength, 0.2)  # Cap at 20%
+                scale_factors[flat_mask] = 1.0 + valley_amplification
                 
                 # Apply transformations
                 transformed_coeffs = coeffs * scale_factors
@@ -193,7 +286,11 @@ class TALTOptimizer:
                 # Add back the mean
                 transformed_grad = transformed_grad + grad_mean.squeeze()
                 
-                # Store visualization data
+                # Restore original scale if normalization was applied
+                if param_state and param_state.get('grad_norm_ema', 1.0) != 1.0:
+                    transformed_grad = transformed_grad * param_state['grad_norm_ema']
+                
+                # Store enhanced visualization data
                 if len(self._visualization_data['eigenvalues'][name]) < 1000:  # Limit storage
                     self._visualization_data['eigenvalues'][name].append(
                         (self.steps, eigenvalues.detach().cpu().numpy())
@@ -206,7 +303,7 @@ class TALTOptimizer:
                 return grad
                 
         except Exception as e:
-            logger.error(f"Error in gradient transformation for {name}: {e}")
+            logger.error(f"Error in enhanced gradient transformation for {name}: {e}")
             return grad
 
     def _update_topology(self) -> None:

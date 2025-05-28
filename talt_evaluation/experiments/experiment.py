@@ -7,7 +7,7 @@ import logging
 import time
 import torch
 import numpy as np
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 from datetime import datetime
 import sys
@@ -143,12 +143,12 @@ class Experiment:
                 # Extract TALT-specific parameters - updated for ImprovedTALTOptimizer
                 talt_params = {
                     'lr': self.optimizer_config.get('lr', 0.01),
-                    'memory_size': self.optimizer_config.get('memory_size', 10),
-                    'update_interval': self.optimizer_config.get('update_interval', 20),
-                    'valley_strength': self.optimizer_config.get('valley_strength', 0.1),
-                    'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.3),
-                    'grad_store_interval': self.optimizer_config.get('grad_store_interval', 5),
-                    'min_param_size': self.optimizer_config.get('min_param_size', 100),
+                    'memory_size': self.optimizer_config.get('memory_size', 25),  # Increased default
+                    'update_interval': self.optimizer_config.get('update_interval', 15),  # More frequent
+                    'valley_strength': self.optimizer_config.get('valley_strength', 0.05),  # More conservative
+                    'smoothing_factor': self.optimizer_config.get('smoothing_factor', 0.05),  # More conservative
+                    'grad_store_interval': self.optimizer_config.get('grad_store_interval', 3),  # More frequent
+                    'min_param_size': self.optimizer_config.get('min_param_size', 25),  # Lower threshold
                     'max_param_size': self.optimizer_config.get('max_param_size', 1000000),
                     'device': self.device
                 }
@@ -319,7 +319,7 @@ class Experiment:
                         self.optimizer.zero_grad()
                         
                         if self.mixed_precision and self.scaler is not None:
-                            with autocast():
+                            with autocast(device_type='cuda' if self.device.type == 'cuda' else 'cpu'):
                                 outputs = self.model(
                                     input_ids=input_ids,
                                     attention_mask=attention_mask,
@@ -347,7 +347,7 @@ class Experiment:
                         self.optimizer.zero_grad()
                         
                         if self.mixed_precision and self.scaler is not None:
-                            with autocast():
+                            with autocast(device_type='cuda' if self.device.type == 'cuda' else 'cpu'):
                                 outputs = self.model(inputs)
                                 loss = self.criterion(outputs, labels)
                             

@@ -56,13 +56,13 @@ class SimpleCNN(nn.Module):
                 'momentum': 0.9
             },
             'improved-talt': {
-                'lr': 0.01,
-                'memory_size': 8,
-                'update_interval': 25,
-                'valley_strength': 0.15,
-                'smoothing_factor': 0.3,
-                'grad_store_interval': 5,
-                'min_param_size': 100,
+                'lr': 0.1,
+                'memory_size': 25,  # Increased for better eigenspace estimation
+                'update_interval': 15,  # More frequent updates
+                'valley_strength': 0.05,  # More conservative
+                'smoothing_factor': 0.05,  # More conservative
+                'grad_store_interval': 3,  # More frequent gradient storage
+                'min_param_size': 25,  # Lower threshold for better coverage
                 'max_param_size': 1000000
             },
             'original-talt': {

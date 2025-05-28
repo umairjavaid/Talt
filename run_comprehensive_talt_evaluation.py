@@ -241,7 +241,7 @@ class ComprehensiveTALTEvaluator:
         # 3. Small memory size
         small_memory = base_talt_exp.copy()
         small_memory["name"] = f"{base_talt_exp['name']}_small_memory"
-        small_memory["memory_size"] = 5
+        small_memory["memory_size"] = 10  # Reduced from 5 to maintain minimum viable eigenspace
         ablation_config["experiments"].append(small_memory)
         
         # 4. Large memory size

@@ -135,13 +135,13 @@ def parse_args():
     
     # TALT parameters
     parser.add_argument('--projection-dim', type=int, default=64, help='Original TALT projection dimension (ignored for improved-talt)')
-    parser.add_argument('--memory-size', type=int, default=10, help='TALT memory size')
-    parser.add_argument('--update-interval', type=int, default=100, help='TALT update interval')
-    parser.add_argument('--valley-strength', type=float, default=0.1, help='TALT valley strength')
-    parser.add_argument('--smoothing-factor', type=float, default=0.9, help='TALT smoothing factor')
-    parser.add_argument('--grad-store-interval', type=int, default=10, help='TALT gradient store interval')
+    parser.add_argument('--memory-size', type=int, default=25, help='TALT memory size')  # Increased default
+    parser.add_argument('--update-interval', type=int, default=15, help='TALT update interval')  # More frequent updates
+    parser.add_argument('--valley-strength', type=float, default=0.05, help='TALT valley strength')  # More conservative
+    parser.add_argument('--smoothing-factor', type=float, default=0.05, help='TALT smoothing factor')  # More conservative
+    parser.add_argument('--grad-store-interval', type=int, default=3, help='TALT gradient store interval')  # More frequent
     # Improved TALT specific parameters
-    parser.add_argument('--min-param-size', type=int, default=100, help='Improved TALT minimum parameter size to track')
+    parser.add_argument('--min-param-size', type=int, default=25, help='Improved TALT minimum parameter size to track')  # Lower threshold
     parser.add_argument('--max-param-size', type=int, default=1000000, help='Improved TALT maximum parameter size to track')
     # Original TALT specific parameters
     parser.add_argument('--cov-decay', type=float, default=0.99, help='Original TALT covariance decay')
